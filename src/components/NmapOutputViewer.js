@@ -97,19 +97,34 @@ const NmapOutputViewer = () => {
     return '';
   };
 
-  const getWebLink = (ip, port, service) => {
+  const getWebLink = (ip, hostname, port, service) => {
     const protocols = service.toLowerCase() === 'https' ? ['https'] : ['http', 'https'];
-    return protocols.map(protocol => (
-      <a
-        key={protocol}
-        href={`${protocol}://${ip}:${port}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-blue-600 hover:text-blue-800 mr-2"
-      >
-        {protocol}
-      </a>
-    ));
+    return (
+      <div>
+        {protocols.map(protocol => (
+          <React.Fragment key={protocol}>
+            <a
+              href={`${protocol}://${ip}:${port}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 mr-2"
+            >
+              {protocol} (IP)
+            </a>
+            {hostname !== ip && (
+              <a
+                href={`${protocol}://${hostname}:${port}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 mr-2"
+              >
+                {protocol} (Hostname)
+              </a>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    );
   };
 
   const exportToPDF = () => {
@@ -192,7 +207,7 @@ const NmapOutputViewer = () => {
                       <th className="p-2 text-left">Service</th>
                       <th className="p-2 text-left">Product</th>
                       <th className="p-2 text-left">Version</th>
-                      <th className="p-2 text-left">Link</th>
+                      <th className="p-2 text-left">Links</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -203,7 +218,7 @@ const NmapOutputViewer = () => {
                         <td className="p-2 border-b">{detail.product}</td>
                         <td className="p-2 border-b">{detail.version}</td>
                         <td className="p-2 border-b">
-                          {isHttpService(detail.service) && getWebLink(item.ip, detail.port, detail.service)}
+                          {isHttpService(detail.service) && getWebLink(item.ip, item.host, detail.port, detail.service)}
                         </td>
                       </tr>
                     ))}
