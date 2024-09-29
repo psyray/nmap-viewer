@@ -8,7 +8,8 @@ const NmapOutputViewer = () => {
   const [error, setError] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
   const [activeFilters, setActiveFilters] = useState([]);
-  const [filterMode, setFilterMode] = useState('OR'); // 'OR' or 'AND'
+  const [filterMode, setFilterMode] = useState('OR');
+  const [textFilter, setTextFilter] = useState('');
 
   const handleXmlFileUpload = (event) => {
     const file = event.target.files[0];
@@ -216,31 +217,54 @@ const NmapOutputViewer = () => {
 
   const filteredData = useMemo(() => {
     if (!sortedData) return null;
-    if (activeFilters.length === 0) return sortedData;
+    
+    let filtered = sortedData;
 
-    return sortedData.filter(item => 
-      item.portDetails.some(detail => {
-        const conditions = [
-          activeFilters.includes('http') && isHttpService(detail.service),
-          activeFilters.includes('smb') && isSmbService(detail.service),
-          activeFilters.includes('standard') && 
-            ['80', '443', '8080'].includes(detail.port) && 
-            isHttpService(detail.service),
-          activeFilters.includes('ldap') && isLdapService(detail.service)
-        ];
+    // Apply service type filters
+    if (activeFilters.length > 0) {
+      filtered = filtered.filter(item => 
+        item.portDetails.some(detail => {
+          const conditions = [
+            activeFilters.includes('http') && isHttpService(detail.service),
+            activeFilters.includes('smb') && isSmbService(detail.service),
+            activeFilters.includes('standard') && 
+              ['80', '443', '8080'].includes(detail.port) && 
+              isHttpService(detail.service),
+            activeFilters.includes('ldap') && isLdapService(detail.service)
+          ];
 
-        if (filterMode === 'OR') {
-          return conditions.some(condition => condition);
-        } else { // 'AND' mode
-          return activeFilters.every((filter, index) => conditions[index]);
-        }
-      })
-    );
-  }, [sortedData, activeFilters, filterMode]);
+          if (filterMode === 'OR') {
+            return conditions.some(condition => condition);
+          } else { // 'AND' mode
+            return activeFilters.every((filter, index) => conditions[index]);
+          }
+        })
+      );
+    }
+
+    // Apply text filter
+    if (textFilter) {
+      const lowercasedFilter = textFilter.toLowerCase();
+      filtered = filtered.map(item => ({
+        ...item,
+        portDetails: item.portDetails.filter(detail => 
+          Object.values(detail).some(value => 
+            value.toString().toLowerCase().includes(lowercasedFilter)
+          )
+        )
+      })).filter(item => item.portDetails.length > 0);
+    }
+
+    return filtered;
+  }, [sortedData, activeFilters, filterMode, textFilter]);
+
+  const handleTextFilterChange = (event) => {
+    setTextFilter(event.target.value);
+  };
 
   return (
     <div className="container mx-auto p-4 bg-gray-100">
-      <div className="sticky top-0 bg-white p-4 shadow-md mb-4 z-10">
+      <div className="sticky top-0 bg-white p-4 shadow-md mb-4 z-20">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold">Legend</h1>
           <div>
@@ -298,6 +322,15 @@ const NmapOutputViewer = () => {
             <span>LDAP services</span>
           </button>
         </div>
+        <div className="mt-4">
+          <input
+            type="text"
+            placeholder="Filter results..."
+            value={textFilter}
+            onChange={handleTextFilterChange}
+            className="w-full p-2 border rounded"
+          />
+        </div>
         {sortedData && (
           <button
             onClick={exportToPDF}
@@ -311,14 +344,14 @@ const NmapOutputViewer = () => {
       <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
       {error && <p className="text-red-500 mb-4">{error}</p>}
       {filteredData && (
-        <div>
+        <div className="space-y-8">
           <p className="mb-4 text-xl font-bold">Total number of hosts: {filteredData.length}</p>
           {filteredData.map((item, index) => (
-            <div key={index} className="mb-8 bg-white rounded-lg shadow-md overflow-hidden">
+            <div key={index} className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="bg-blue-600 text-white p-4">
                 <h2 className="text-2xl font-bold">{item.host}</h2>
                 <p className="text-lg">IP: {item.ip}</p>
-                <p className="text-sm">Number of open ports: {item.portCount}</p>
+                <p className="text-sm">Number of open ports: {item.portDetails.length}</p>
               </div>
               <div className="p-4">
                 <table className="w-full border-collapse">
