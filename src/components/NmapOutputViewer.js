@@ -7,6 +7,8 @@ const NmapOutputViewer = () => {
   const [xmlData, setXmlData] = useState(null);
   const [error, setError] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
+  const [activeFilters, setActiveFilters] = useState([]);
+  const [filterMode, setFilterMode] = useState('OR'); // 'OR' or 'AND'
 
   const handleXmlFileUpload = (event) => {
     const file = event.target.files[0];
@@ -83,21 +85,58 @@ const NmapOutputViewer = () => {
   };
 
   const isHttpService = (service) => {
-    const httpServices = ['http', 'https', 'nginx', 'apache'];
-    return httpServices.includes(service.toLowerCase());
+    const httpKeywords = ['http', 'https', 'nginx', 'apache', 'tomcat', 'iis', 'webserver', 'web'];
+    return httpKeywords.some(keyword => service.toLowerCase().includes(keyword));
+  };
+
+  const isSmbService = (service) => {
+    return service.toLowerCase().includes('microsoft-ds') || service.toLowerCase().includes('netbios-ssn');
+  };
+
+  const isLdapService = (service) => {
+    return service.toLowerCase().includes('ldap');
   };
 
   const getPortStyle = (port, service) => {
     const standardHttpPorts = ['80', '443', '8080'];
-    if (standardHttpPorts.includes(port) && isHttpService(service)) {
+    if (isSmbService(service)) {
+      return 'bg-red-100';
+    } else if (standardHttpPorts.includes(port) && isHttpService(service)) {
       return 'bg-green-100';
     } else if (isHttpService(service)) {
       return 'bg-yellow-100';
+    } else if (isLdapService(service)) {
+      return 'bg-blue-100';
     }
     return '';
   };
 
   const getWebLink = (ip, hostname, port, service) => {
+    if (isSmbService(service)) {
+      return (
+        <div>
+          <a
+            href={`smb://${ip}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 mr-2"
+          >
+            SMB (IP)
+          </a>
+          {hostname !== ip && (
+            <a
+              href={`smb://${hostname}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 mr-2"
+            >
+              SMB (Hostname)
+            </a>
+          )}
+        </div>
+      );
+    }
+
     const protocols = service.toLowerCase() === 'https' ? ['https'] : ['http', 'https'];
     return (
       <div>
@@ -159,40 +198,122 @@ const NmapOutputViewer = () => {
     doc.save('nmap_scan_report.pdf');
   };
 
+  const toggleFilter = (filter) => {
+    setActiveFilters(prev => 
+      prev.includes(filter) 
+        ? prev.filter(f => f !== filter)
+        : [...prev, filter]
+    );
+  };
+
+  const resetFilters = () => {
+    setActiveFilters([]);
+  };
+
+  const toggleFilterMode = () => {
+    setFilterMode(prev => prev === 'OR' ? 'AND' : 'OR');
+  };
+
+  const filteredData = useMemo(() => {
+    if (!sortedData) return null;
+    if (activeFilters.length === 0) return sortedData;
+
+    return sortedData.filter(item => 
+      item.portDetails.some(detail => {
+        const conditions = [
+          activeFilters.includes('http') && isHttpService(detail.service),
+          activeFilters.includes('smb') && isSmbService(detail.service),
+          activeFilters.includes('standard') && 
+            ['80', '443', '8080'].includes(detail.port) && 
+            isHttpService(detail.service),
+          activeFilters.includes('ldap') && isLdapService(detail.service)
+        ];
+
+        if (filterMode === 'OR') {
+          return conditions.some(condition => condition);
+        } else { // 'AND' mode
+          return activeFilters.every((filter, index) => conditions[index]);
+        }
+      })
+    );
+  }, [sortedData, activeFilters, filterMode]);
+
   return (
     <div className="container mx-auto p-4 bg-gray-100">
       <div className="sticky top-0 bg-white p-4 shadow-md mb-4 z-10">
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-2xl font-bold">Legend</h1>
           <div>
-            <h1 className="text-2xl font-bold mb-2">Legend</h1>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center">
-                <div className="w-4 h-4 bg-green-100 mr-2"></div>
-                <span>HTTP services on standard ports</span>
-              </div>
-              <div className="flex items-center">
-                <div className="w-4 h-4 bg-yellow-100 mr-2"></div>
-                <span>HTTP services on non-standard ports</span>
-              </div>
-            </div>
-          </div>
-          {sortedData && (
             <button
-              onClick={exportToPDF}
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+              onClick={toggleFilterMode}
+              className={`mr-2 px-4 py-2 rounded ${
+                filterMode === 'OR' ? 'bg-blue-500 text-white' : 'bg-gray-300'
+              }`}
             >
-              Export to PDF
+              OR
             </button>
-          )}
+            <button
+              onClick={toggleFilterMode}
+              className={`mr-2 px-4 py-2 rounded ${
+                filterMode === 'AND' ? 'bg-blue-500 text-white' : 'bg-gray-300'
+              }`}
+            >
+              AND
+            </button>
+            <button
+              onClick={resetFilters}
+              className="bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 px-4 rounded"
+            >
+              Reset Filters
+            </button>
+          </div>
         </div>
+        <div className="flex items-center space-x-4 flex-wrap">
+          <button 
+            onClick={() => toggleFilter('standard')} 
+            className={`flex items-center p-2 rounded ${activeFilters.includes('standard') ? 'bg-blue-200' : ''}`}
+          >
+            <div className="w-4 h-4 bg-green-100 mr-2"></div>
+            <span>HTTP services on standard ports</span>
+          </button>
+          <button 
+            onClick={() => toggleFilter('http')} 
+            className={`flex items-center p-2 rounded ${activeFilters.includes('http') ? 'bg-blue-200' : ''}`}
+          >
+            <div className="w-4 h-4 bg-yellow-100 mr-2"></div>
+            <span>HTTP services on non-standard ports</span>
+          </button>
+          <button 
+            onClick={() => toggleFilter('smb')} 
+            className={`flex items-center p-2 rounded ${activeFilters.includes('smb') ? 'bg-blue-200' : ''}`}
+          >
+            <div className="w-4 h-4 bg-red-100 mr-2"></div>
+            <span>SMB services</span>
+          </button>
+          <button 
+            onClick={() => toggleFilter('ldap')} 
+            className={`flex items-center p-2 rounded ${activeFilters.includes('ldap') ? 'bg-blue-200' : ''}`}
+          >
+            <div className="w-4 h-4 bg-blue-100 mr-2"></div>
+            <span>LDAP services</span>
+          </button>
+        </div>
+        {sortedData && (
+          <button
+            onClick={exportToPDF}
+            className="mt-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Export to PDF
+          </button>
+        )}
       </div>
 
       <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
       {error && <p className="text-red-500 mb-4">{error}</p>}
-      {sortedData && (
+      {filteredData && (
         <div>
-          <p className="mb-4 text-xl font-bold">Total number of hosts: {sortedData.length}</p>
-          {sortedData.map((item, index) => (
+          <p className="mb-4 text-xl font-bold">Total number of hosts: {filteredData.length}</p>
+          {filteredData.map((item, index) => (
             <div key={index} className="mb-8 bg-white rounded-lg shadow-md overflow-hidden">
               <div className="bg-blue-600 text-white p-4">
                 <h2 className="text-2xl font-bold">{item.host}</h2>
@@ -218,7 +339,8 @@ const NmapOutputViewer = () => {
                         <td className="p-2 border-b">{detail.product}</td>
                         <td className="p-2 border-b">{detail.version}</td>
                         <td className="p-2 border-b">
-                          {isHttpService(detail.service) && getWebLink(item.ip, item.host, detail.port, detail.service)}
+                          {(isHttpService(detail.service) || isSmbService(detail.service)) && 
+                            getWebLink(item.ip, item.host, detail.port, detail.service)}
                         </td>
                       </tr>
                     ))}
