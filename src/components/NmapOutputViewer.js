@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { XMLParser } from 'fast-xml-parser';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -10,6 +10,12 @@ const NmapOutputViewer = () => {
   const [activeFilters, setActiveFilters] = useState([]);
   const [filterMode, setFilterMode] = useState('OR');
   const [textFilter, setTextFilter] = useState('');
+  const [sidebarWidth, setSidebarWidth] = useState(256); // Default width
+  const [sidebarSortConfig, setSidebarSortConfig] = useState({ key: 'ip', direction: 'ascending' });
+  const [allServices, setAllServices] = useState([]);
+  
+  const hostRefs = useRef({});
+  const sidebarRef = useRef(null);
 
   const handleXmlFileUpload = (event) => {
     const file = event.target.files[0];
@@ -79,10 +85,10 @@ const NmapOutputViewer = () => {
 
   const requestSort = (key) => {
     let direction = 'ascending';
-    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+    if (sidebarSortConfig.key === key && sidebarSortConfig.direction === 'ascending') {
       direction = 'descending';
     }
-    setSortConfig({ key, direction });
+    setSidebarSortConfig({ key, direction });
   };
 
   const isHttpService = (service) => {
@@ -98,6 +104,42 @@ const NmapOutputViewer = () => {
     return service.toLowerCase().includes('ldap');
   };
 
+  const isOpenSSHService = (service) => {
+    return service.toLowerCase().includes('ssh');
+  };
+
+  const isKerberosService = (service) => {
+    return service.toLowerCase().includes('kerberos');
+  };
+
+  const isMySQLService = (service) => {
+    return service.toLowerCase().includes('mysql');
+  };
+
+  const isNagiosService = (service) => {
+    return service.toLowerCase().includes('nagios');
+  };
+
+  const isRDPService = (service) => {
+    return service.toLowerCase().includes('rdp') || service.toLowerCase().includes('remote desktop');
+  };
+
+  const isFtpService = (service) => service.toLowerCase().includes('ftp');
+  const isMailService = (service) => ['smtp', 'pop3', 'imap'].some(protocol => service.toLowerCase().includes(protocol));
+  const isDnsService = (service) => service.toLowerCase().includes('dns');
+  const isSnmpService = (service) => service.toLowerCase().includes('snmp');
+  const isNfsService = (service) => service.toLowerCase().includes('nfs');
+  const isMssqlService = (service) => service.toLowerCase().includes('ms-sql') || service.toLowerCase().includes('mssql');
+  const isOracleService = (service) => service.toLowerCase().includes('oracle');
+  const isVncService = (service) => service.toLowerCase().includes('vnc');
+  const isTelnetService = (service) => service.toLowerCase().includes('telnet');
+  const isTftpService = (service) => service.toLowerCase().includes('tftp');
+  const isVpnService = (service) => ['pptp', 'l2tp'].some(protocol => service.toLowerCase().includes(protocol));
+  const isMongodbService = (service) => service.toLowerCase().includes('mongodb');
+  const isRedisService = (service) => service.toLowerCase().includes('redis');
+  const isJenkinsService = (service) => service.toLowerCase().includes('jenkins');
+  const isElasticsearchService = (service) => service.toLowerCase().includes('elasticsearch');
+
   const getPortStyle = (port, service) => {
     const standardHttpPorts = ['80', '443', '8080'];
     if (isSmbService(service)) {
@@ -108,6 +150,16 @@ const NmapOutputViewer = () => {
       return 'bg-yellow-100';
     } else if (isLdapService(service)) {
       return 'bg-blue-100';
+    } else if (isOpenSSHService(service)) {
+      return 'bg-orange-100';
+    } else if (isKerberosService(service)) {
+      return 'bg-purple-100';
+    } else if (isMySQLService(service)) {
+      return 'bg-pink-100';
+    } else if (isNagiosService(service)) {
+      return 'bg-indigo-100';
+    } else if (isRDPService(service)) {
+      return 'bg-teal-100';
     }
     return '';
   };
@@ -209,6 +261,7 @@ const NmapOutputViewer = () => {
 
   const resetFilters = () => {
     setActiveFilters([]);
+    setTextFilter('');
   };
 
   const toggleFilterMode = () => {
@@ -218,172 +271,409 @@ const NmapOutputViewer = () => {
   const filteredData = useMemo(() => {
     if (!sortedData) return null;
     
-    let filtered = sortedData;
+    const serviceChecks = {
+      http: (detail) => isHttpService(detail.service),
+      smb: (detail) => isSmbService(detail.service),
+      standard: (detail) => ['80', '443', '8080'].includes(detail.port) && isHttpService(detail.service),
+      ldap: (detail) => isLdapService(detail.service),
+      openssh: (detail) => isOpenSSHService(detail.service),
+      kerberos: (detail) => isKerberosService(detail.service),
+      mysql: (detail) => isMySQLService(detail.service),
+      nagios: (detail) => isNagiosService(detail.service),
+      rdp: (detail) => isRDPService(detail.service),
+      ftp: (detail) => isFtpService(detail.service),
+      mail: (detail) => isMailService(detail.service),
+      dns: (detail) => isDnsService(detail.service),
+      snmp: (detail) => isSnmpService(detail.service),
+      nfs: (detail) => isNfsService(detail.service),
+      mssql: (detail) => isMssqlService(detail.service),
+      oracle: (detail) => isOracleService(detail.service),
+      vnc: (detail) => isVncService(detail.service),
+      telnet: (detail) => isTelnetService(detail.service),
+      tftp: (detail) => isTftpService(detail.service),
+      vpn: (detail) => isVpnService(detail.service),
+      mongodb: (detail) => isMongodbService(detail.service),
+      redis: (detail) => isRedisService(detail.service),
+      jenkins: (detail) => isJenkinsService(detail.service),
+      elasticsearch: (detail) => isElasticsearchService(detail.service),
+    };
 
-    // Apply service type filters
-    if (activeFilters.length > 0) {
-      filtered = filtered.filter(item => 
-        item.portDetails.some(detail => {
-          const conditions = [
-            activeFilters.includes('http') && isHttpService(detail.service),
-            activeFilters.includes('smb') && isSmbService(detail.service),
-            activeFilters.includes('standard') && 
-              ['80', '443', '8080'].includes(detail.port) && 
-              isHttpService(detail.service),
-            activeFilters.includes('ldap') && isLdapService(detail.service)
-          ];
+    const foundServices = new Set();
 
-          if (filterMode === 'OR') {
-            return conditions.some(condition => condition);
-          } else { // 'AND' mode
-            return activeFilters.every((filter, index) => conditions[index]);
+    // Detect all services present in the data
+    sortedData.forEach(item => {
+      item.portDetails.forEach(detail => {
+        Object.keys(serviceChecks).forEach(service => {
+          if (serviceChecks[service](detail)) {
+            foundServices.add(service);
           }
-        })
-      );
-    }
+        });
+      });
+    });
 
-    // Apply text filter
-    if (textFilter) {
-      const lowercasedFilter = textFilter.toLowerCase();
-      filtered = filtered.map(item => ({
-        ...item,
-        portDetails: item.portDetails.filter(detail => 
-          Object.values(detail).some(value => 
-            value.toString().toLowerCase().includes(lowercasedFilter)
-          )
-        )
-      })).filter(item => item.portDetails.length > 0);
-    }
+    setAllServices(Array.from(foundServices));
 
-    return filtered;
-  }, [sortedData, activeFilters, filterMode, textFilter]);
+    const filteredHosts = sortedData.filter(item => {
+      if (activeFilters.length === 0) return true;
+
+      if (filterMode === 'OR') {
+        return item.portDetails.some(detail => 
+          activeFilters.some(filter => serviceChecks[filter](detail))
+        );
+      } else { // 'AND' mode
+        return activeFilters.every(filter => 
+          item.portDetails.some(detail => serviceChecks[filter](detail))
+        );
+      }
+    }).map(item => ({
+      ...item,
+      portDetails: item.portDetails.filter(detail => 
+        activeFilters.length === 0 || activeFilters.some(filter => serviceChecks[filter](detail))
+      )
+    }));
+
+    return filteredHosts;
+  }, [sortedData, activeFilters, filterMode]);
 
   const handleTextFilterChange = (event) => {
     setTextFilter(event.target.value);
   };
 
+  const scrollToHost = (hostId) => {
+    hostRefs.current[hostId]?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const truncateText = (text, maxLength) => {
+    return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
+  };
+
+  const getPortCountColor = (count) => {
+    if (count === 0) return 'bg-red-500';
+    if (count <= 10) return 'bg-yellow-500';
+    if (count <= 20) return 'bg-yellow-300';
+    if (count <= 30) return 'bg-green-300';
+    return 'bg-green-500';
+  };
+
+  const compareIP = (ip1, ip2) => {
+    const parts1 = ip1.split('.').map(Number);
+    const parts2 = ip2.split('.').map(Number);
+    for (let i = 0; i < 4; i++) {
+      if (parts1[i] !== parts2[i]) {
+        return parts1[i] - parts2[i];
+      }
+    }
+    return 0;
+  };
+
+  const sortedSidebarData = useMemo(() => {
+    if (!filteredData) return null;
+    let sortableItems = [...filteredData];
+    if (sidebarSortConfig.key) {
+      sortableItems.sort((a, b) => {
+        if (sidebarSortConfig.key === 'portCount') {
+          return b.portDetails.length - a.portDetails.length;
+        }
+        if (sidebarSortConfig.key === 'ip') {
+          return compareIP(a.ip, b.ip) * (sidebarSortConfig.direction === 'ascending' ? 1 : -1);
+        }
+        if (a[sidebarSortConfig.key] < b[sidebarSortConfig.key]) {
+          return sidebarSortConfig.direction === 'ascending' ? -1 : 1;
+        }
+        if (a[sidebarSortConfig.key] > b[sidebarSortConfig.key]) {
+          return sidebarSortConfig.direction === 'ascending' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [filteredData, sidebarSortConfig]);
+
+  useEffect(() => {
+    if (filteredData && sidebarRef.current) {
+      const maxHostLength = Math.min(
+        40,
+        Math.max(...filteredData.map(item => Math.max(item.host.length, item.ip.length)))
+      );
+      const newWidth = Math.max(256, maxHostLength * 10); // Approximate width based on character count
+      setSidebarWidth(newWidth);
+    }
+  }, [filteredData]);
+
+  const serviceColors = {
+    http: 'bg-yellow-100',
+    smb: 'bg-red-100',
+    standard: 'bg-green-100',
+    ldap: 'bg-blue-100',
+    openssh: 'bg-orange-100',
+    kerberos: 'bg-purple-100',
+    mysql: 'bg-pink-100',
+    nagios: 'bg-indigo-100',
+    rdp: 'bg-teal-100',
+    ftp: 'bg-lime-100',
+    mail: 'bg-cyan-100',
+    dns: 'bg-amber-100',
+    snmp: 'bg-emerald-100',
+    nfs: 'bg-violet-100',
+    mssql: 'bg-rose-100',
+    oracle: 'bg-fuchsia-100',
+    vnc: 'bg-sky-100',
+    telnet: 'bg-orange-200',
+    tftp: 'bg-yellow-200',
+    vpn: 'bg-green-200',
+    mongodb: 'bg-blue-200',
+    redis: 'bg-red-200',
+    jenkins: 'bg-purple-200',
+    elasticsearch: 'bg-pink-200',
+  };
+
+  const handlePrint = () => {
+    if (!filteredData) return;
+
+    const doc = new jsPDF();
+    const pageHeight = doc.internal.pageSize.height;
+
+    // Add title
+    doc.setFontSize(18);
+    doc.text('Nmap Scan Results', 14, 20);
+
+    // Add filters information
+    doc.setFontSize(12);
+    doc.text(`Active Filters: ${activeFilters.join(', ') || 'None'}`, 14, 30);
+    doc.text(`Filter Mode: ${filterMode}`, 14, 38);
+
+    // Add index
+    let yPosition = 50;
+    doc.setFontSize(16);
+    doc.text('Index', 14, yPosition);
+    yPosition += 10;
+
+    filteredData.forEach((item, index) => {
+      if (yPosition > pageHeight - 20) {
+        doc.addPage();
+        yPosition = 20;
+      }
+      doc.setFontSize(12);
+      doc.text(`${index + 1}. ${item.host} (${item.ip})`, 14, yPosition);
+      yPosition += 8;
+    });
+
+    // Add page break after index
+    doc.addPage();
+
+    // Add scan results
+    filteredData.forEach((item, index) => {
+      doc.setFontSize(16);
+      doc.text(`${index + 1}. Host: ${item.host}`, 14, 20);
+      doc.setFontSize(14);
+      doc.text(`IP: ${item.ip}`, 14, 30);
+      doc.text(`Open Ports: ${item.portDetails.length}`, 14, 40);
+
+      const tableData = item.portDetails
+        .filter(detail => {
+          if (activeFilters.length === 0) return true;
+          return activeFilters.some(filter => {
+            switch (filter) {
+              case 'http':
+                return isHttpService(detail.service);
+              case 'smb':
+                return isSmbService(detail.service);
+              case 'standard':
+                return ['80', '443', '8080'].includes(detail.port) && isHttpService(detail.service);
+              case 'ldap':
+                return isLdapService(detail.service);
+              case 'openssh':
+                return isOpenSSHService(detail.service);
+              case 'kerberos':
+                return isKerberosService(detail.service);
+              case 'mysql':
+                return isMySQLService(detail.service);
+              case 'nagios':
+                return isNagiosService(detail.service);
+              case 'rdp':
+                return isRDPService(detail.service);
+              // Ajoutez ici les autres services que vous avez définis
+              default:
+                return false;
+            }
+          });
+        })
+        .map(detail => [
+          detail.port,
+          detail.protocol,
+          detail.state,
+          detail.service,
+          detail.version
+        ]);
+
+      doc.autoTable({
+        startY: 50,
+        head: [['Port', 'Protocol', 'State', 'Service', 'Version']],
+        body: tableData,
+      });
+
+      if (index < filteredData.length - 1) {
+        doc.addPage();
+      }
+    });
+
+    doc.save('nmap_scan_results.pdf');
+  };
+
   return (
-    <div className="container mx-auto p-4 bg-gray-100">
-      <div className="sticky top-0 bg-white p-4 shadow-md mb-4 z-20">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold">Legend</h1>
-          <div>
-            <button
-              onClick={toggleFilterMode}
-              className={`mr-2 px-4 py-2 rounded ${
-                filterMode === 'OR' ? 'bg-blue-500 text-white' : 'bg-gray-300'
-              }`}
-            >
-              OR
-            </button>
-            <button
-              onClick={toggleFilterMode}
-              className={`mr-2 px-4 py-2 rounded ${
-                filterMode === 'AND' ? 'bg-blue-500 text-white' : 'bg-gray-300'
-              }`}
-            >
-              AND
-            </button>
-            <button
-              onClick={resetFilters}
-              className="bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 px-4 rounded"
-            >
-              Reset Filters
-            </button>
+    <div className="flex">
+      {/* Sidebar */}
+      <div 
+        ref={sidebarRef}
+        style={{ width: `${sidebarWidth}px` }}
+        className="h-screen overflow-y-auto fixed left-0 top-0 bg-gray-100 p-4 border-r"
+      >
+        <h2 className="text-xl font-bold mb-4">Hosts</h2>
+        <div className="mb-4 flex space-x-2">
+          <button onClick={() => requestSort('host')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
+            Sort by Hostname
+          </button>
+          <button onClick={() => requestSort('ip')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
+            Sort by IP
+          </button>
+          <button onClick={() => requestSort('portCount')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
+            Sort by Ports
+          </button>
+        </div>
+        {sortedSidebarData && sortedSidebarData.map((item, index) => (
+          <div 
+            key={index} 
+            className="mb-2 p-2 bg-white rounded shadow cursor-pointer hover:bg-gray-200"
+            onClick={() => scrollToHost(index)}
+          >
+            <p className="font-semibold truncate" title={item.host}>{truncateText(item.host, 40)}</p>
+            <p className="text-sm truncate" title={item.ip}>IP: {truncateText(item.ip, 40)}</p>
+            <div className="flex items-center mt-1">
+              <span className="text-sm mr-2">Open ports:</span>
+              <span className={`text-sm font-bold text-white px-2 py-1 rounded-full ${getPortCountColor(item.portDetails.length)}`}>
+                {item.portDetails.length}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center space-x-4 flex-wrap">
-          <button 
-            onClick={() => toggleFilter('standard')} 
-            className={`flex items-center p-2 rounded ${activeFilters.includes('standard') ? 'bg-blue-200' : ''}`}
-          >
-            <div className="w-4 h-4 bg-green-100 mr-2"></div>
-            <span>HTTP services on standard ports</span>
-          </button>
-          <button 
-            onClick={() => toggleFilter('http')} 
-            className={`flex items-center p-2 rounded ${activeFilters.includes('http') ? 'bg-blue-200' : ''}`}
-          >
-            <div className="w-4 h-4 bg-yellow-100 mr-2"></div>
-            <span>HTTP services on non-standard ports</span>
-          </button>
-          <button 
-            onClick={() => toggleFilter('smb')} 
-            className={`flex items-center p-2 rounded ${activeFilters.includes('smb') ? 'bg-blue-200' : ''}`}
-          >
-            <div className="w-4 h-4 bg-red-100 mr-2"></div>
-            <span>SMB services</span>
-          </button>
-          <button 
-            onClick={() => toggleFilter('ldap')} 
-            className={`flex items-center p-2 rounded ${activeFilters.includes('ldap') ? 'bg-blue-200' : ''}`}
-          >
-            <div className="w-4 h-4 bg-blue-100 mr-2"></div>
-            <span>LDAP services</span>
-          </button>
-        </div>
-        <div className="mt-4">
-          <input
-            type="text"
-            placeholder="Filter results..."
-            value={textFilter}
-            onChange={handleTextFilterChange}
-            className="w-full p-2 border rounded"
-          />
-        </div>
-        {sortedData && (
-          <button
-            onClick={exportToPDF}
-            className="mt-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-          >
-            Export to PDF
-          </button>
-        )}
+        ))}
       </div>
 
-      <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
-      {error && <p className="text-red-500 mb-4">{error}</p>}
-      {filteredData && (
-        <div className="space-y-8">
-          <p className="mb-4 text-xl font-bold">Total number of hosts: {filteredData.length}</p>
-          {filteredData.map((item, index) => (
-            <div key={index} className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="bg-blue-600 text-white p-4">
-                <h2 className="text-2xl font-bold">{item.host}</h2>
-                <p className="text-lg">IP: {item.ip}</p>
-                <p className="text-sm">Number of open ports: {item.portDetails.length}</p>
-              </div>
-              <div className="p-4">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-200">
-                      <th className="p-2 text-left">Port</th>
-                      <th className="p-2 text-left">Service</th>
-                      <th className="p-2 text-left">Product</th>
-                      <th className="p-2 text-left">Version</th>
-                      <th className="p-2 text-left">Links</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {item.portDetails.map((detail, detailIndex) => (
-                      <tr key={detailIndex} className={getPortStyle(detail.port, detail.service)}>
-                        <td className="p-2 border-b">{detail.port}</td>
-                        <td className="p-2 border-b font-semibold">{detail.service}</td>
-                        <td className="p-2 border-b">{detail.product}</td>
-                        <td className="p-2 border-b">{detail.version}</td>
-                        <td className="p-2 border-b">
-                          {(isHttpService(detail.service) || isSmbService(detail.service)) && 
-                            getWebLink(item.ip, item.host, detail.port, detail.service)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      {/* Main content */}
+      <div style={{ marginLeft: `${sidebarWidth}px` }} className="flex-grow">
+        <div className="container mx-auto p-4 bg-gray-100">
+          <div className="sticky top-0 bg-white p-4 shadow-md mb-4 z-20">
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-2xl font-bold">Legend</h1>
+              <div>
+                <button
+                  onClick={toggleFilterMode}
+                  className={`mr-2 px-4 py-2 rounded ${
+                    filterMode === 'OR' ? 'bg-blue-500 text-white' : 'bg-gray-300'
+                  }`}
+                >
+                  OR
+                </button>
+                <button
+                  onClick={toggleFilterMode}
+                  className={`mr-2 px-4 py-2 rounded ${
+                    filterMode === 'AND' ? 'bg-blue-500 text-white' : 'bg-gray-300'
+                  }`}
+                >
+                  AND
+                </button>
+                <button
+                  onClick={resetFilters}
+                  className="bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 px-4 rounded"
+                >
+                  Reset Filters
+                </button>
               </div>
             </div>
-          ))}
+            <div className="flex items-center space-x-4 flex-wrap">
+              {allServices.map(service => (
+                <button 
+                  key={service}
+                  onClick={() => toggleFilter(service)} 
+                  className={`flex items-center p-2 rounded ${activeFilters.includes(service) ? 'bg-blue-200' : ''}`}
+                >
+                  <div className={`w-4 h-4 ${serviceColors[service]} mr-2`}></div>
+                  <span>{service.charAt(0).toUpperCase() + service.slice(1)}</span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4">
+              <input
+                type="text"
+                placeholder="Filter results..."
+                value={textFilter}
+                onChange={handleTextFilterChange}
+                className="w-full p-2 border rounded"
+              />
+            </div>
+            {sortedData && (
+              <button
+                onClick={exportToPDF}
+                className="mt-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Export to PDF
+              </button>
+            )}
+          </div>
+
+          <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
+          {error && <p className="text-red-500 mb-4">{error}</p>}
+          {filteredData && (
+            <div className="space-y-8">
+              <p className="mb-4 text-xl font-bold">Total number of hosts: {filteredData.length}</p>
+              {filteredData.map((item, index) => (
+                <div 
+                  key={index} 
+                  className="bg-white rounded-lg shadow-md overflow-hidden"
+                  ref={el => hostRefs.current[index] = el}
+                >
+                  <div className="bg-blue-600 text-white p-4">
+                    <h2 className="text-2xl font-bold">{item.host}</h2>
+                    <p className="text-lg">IP: {item.ip}</p>
+                    <div className="flex items-center mt-1">
+                      <span className="text-sm mr-2">Number of open ports:</span>
+                      <span className={`text-sm font-bold text-white px-2 py-1 rounded-full ${getPortCountColor(item.portDetails.length)}`}>
+                        {item.portDetails.length}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-200">
+                          <th className="p-2 text-left">Port</th>
+                          <th className="p-2 text-left">Service</th>
+                          <th className="p-2 text-left">Product</th>
+                          <th className="p-2 text-left">Version</th>
+                          <th className="p-2 text-left">Links</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {item.portDetails.map((detail, detailIndex) => (
+                          <tr key={detailIndex} className={getPortStyle(detail.port, detail.service)}>
+                            <td className="p-2 border-b">{detail.port}</td>
+                            <td className="p-2 border-b font-semibold">{detail.service}</td>
+                            <td className="p-2 border-b">{detail.product}</td>
+                            <td className="p-2 border-b">{detail.version}</td>
+                            <td className="p-2 border-b">
+                              {(isHttpService(detail.service) || isSmbService(detail.service)) && 
+                                getWebLink(item.ip, item.host, detail.port, detail.service)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };
