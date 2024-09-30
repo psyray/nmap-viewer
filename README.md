@@ -12,6 +12,16 @@ Nmap Viewer is a web-based application designed to visualize and analyze the out
 - Sort hosts by hostname, IP address, or number of open ports
 - Export results to PDF
 - Responsive design for various screen sizes
+- Update scan results with additional XML files
+- Expand/collapse all hosts and ports simultaneously
+- Expand/collapse individual hosts and their ports
+- Copy Nmap commands for individual hosts or all hosts
+- View detailed port information and scripts output
+- Toggle between OR and AND filter modes
+- Reset all applied filters with a single click
+- Drag and drop functionality for XML file upload
+- Sidebar with quick access to all detected services
+- Automatic scrolling to selected service
 
 ## Installation
 
@@ -54,10 +64,13 @@ To install and run the Nmap Viewer application, follow these simple steps:
 ## Usage
 
 1. Open your web browser and navigate to `http://localhost:3001`.
-2. Use the file upload feature to load your Nmap XML output file.
+2. Use the file upload feature to load your initial Nmap XML output file.
 3. Explore the scan results using the interactive interface.
 4. Use the filtering and sorting options to analyze specific aspects of the scan data.
-5. Export the results to PDF if needed.
+5. Update the scan results by uploading additional XML files if needed.
+6. Expand or collapse hosts and ports to view detailed information.
+7. Copy Nmap commands for specific hosts or all hosts.
+8. Export the results to PDF if needed.
 
 ## Requirements
 
