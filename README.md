@@ -30,28 +30,28 @@ To install and run the Nmap Viewer application, follow these simple steps:
 1. Download the installation script:
 
    ```bash
-   curl -O https://raw.githubusercontent.com/psyray/nmap-viewer/refs/heads/master/nmap-viewer-install.sh
+   curl -O https://raw.githubusercontent.com/psyray/nmap-viewer/refs/heads/master/install.sh
    ```
 
 2. Make the script executable:
 
    ```bash
-   chmod +x nmap-viewer-install.sh
+   chmod +x install.sh
    ```
 
 3. Run the installation script:
 
    ```bash
-   ./nmap-viewer-install.sh
+   ./install.sh
    ```
 
    This script will:
    - Clone the project repository
    - Install Node.js (if not already installed)
-   - Create a new React application
-   - Install necessary dependencies
-   - Configure Tailwind CSS
+   - Install dependencies
+   - Build the application
    - Start the application on port 3001
+   - Open the application in your default web browser
 
 4. Once the installation is complete, the application will automatically start and be accessible at `http://localhost:3001`.
 
