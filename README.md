@@ -30,7 +30,7 @@ To install and run the Nmap Viewer application, follow these simple steps:
 1. Download the installation script:
 
    ```bash
-   curl -O https://raw.githubusercontent.com/psyray/nmap-viewer/main/nmap-viewer-install.sh
+   curl -O https://raw.githubusercontent.com/psyray/nmap-viewer/refs/heads/master/nmap-viewer-install.sh
    ```
 
 2. Make the script executable:
