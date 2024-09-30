@@ -65,7 +65,7 @@ create-react-app .
 
 # Install necessary dependencies
 echo "Installing dependencies..."
-npm install fast-xml-parser jspdf jspdf-autotable
+npm install fast-xml-parser jspdf jspdf-autotable react-icons react-dropzone
 
 # Copy the NmapOutputViewer component from the cloned repo
 echo "Copying the NmapOutputViewer component..."
