@@ -896,7 +896,7 @@ const NmapOutputViewer = () => {
           </div>
 
           {/* Content with dynamic padding */}
-          <div style={{ paddingTop: `${legendHeight + 20}px` }} className="p-4">
+          <div style={{ paddingTop: `${legendHeight + 60}px` }} className="p-4">
             <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
             {error && <p className="text-red-500 mb-4">{error}</p>}
             {isInitialFileLoaded && (
