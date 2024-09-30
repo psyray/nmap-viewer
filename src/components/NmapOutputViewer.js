@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { XMLParser } from 'fast-xml-parser';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import { FaClipboard } from 'react-icons/fa';
+import { FaClipboard, FaFileUpload } from 'react-icons/fa';
 import { useDropzone } from 'react-dropzone';
 
 const NmapOutputViewer = () => {
@@ -20,31 +20,121 @@ const NmapOutputViewer = () => {
   const [legendHeight, setLegendHeight] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isHoveringAllCommands, setIsHoveringAllCommands] = useState(false);
-  const [selectedPort, setSelectedPort] = useState(null);
   const [showHostScripts, setShowHostScripts] = useState({});
   const [hoveredCommand, setHoveredCommand] = useState(null);
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [expandedPorts, setExpandedPorts] = useState({});
+  const [isInitialFileLoaded, setIsInitialFileLoaded] = useState(false);
+  const multipleFileInputRef = useRef(null);
+  const [expandedHosts, setExpandedHosts] = useState({});
 
   // Refs
   const sidebarRef = useRef(null);
   const legendRef = useRef(null);
 
-  const onDrop = useCallback((acceptedFiles) => {
-    acceptedFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const content = e.target.result;
-          const parser = new XMLParser({ ignoreAttributes: false });
-          const result = parser.parse(content);
-          updateDataWithNewScan(result);
-        } catch (err) {
-          console.error("Error parsing XML file:", err);
-          // Optionally show an error message to the user
-        }
-      };
-      reader.readAsText(file);
-    });
+  const processHost = useCallback((host) => {
+    const address = host.address;
+    const ip = Array.isArray(address) ? address.find(addr => addr['@_addrtype'] === 'ipv4')['@_addr'] : address['@_addr'];
+    const hostname = host.hostnames && host.hostnames.hostname ? host.hostnames.hostname['@_name'] : ip;
+    const ports = Array.isArray(host.ports.port) ? host.ports.port : [host.ports.port];
+    
+    const openPorts = ports.filter(port => port.state['@_state'] === 'open');
+    
+    return {
+      host: hostname,
+      ip: ip,
+      ports: openPorts.map(port => port['@_portid']),
+      portCount: openPorts.length,
+      portDetails: openPorts.map(port => ({
+        port: port['@_portid'],
+        state: port.state['@_state'],
+        service: port.service ? port.service['@_name'] : 'unknown',
+        product: port.service && port.service['@_product'] ? port.service['@_product'] : '',
+        version: port.service && port.service['@_version'] ? port.service['@_version'] : '',
+        extraInfo: port.service && port.service['@_extrainfo'] ? port.service['@_extrainfo'] : '',
+        ostype: port.service && port.service['@_ostype'] ? port.service['@_ostype'] : '',
+        scripts: port.script ? (Array.isArray(port.script) ? port.script : [port.script]) : []
+      })),
+      hostScripts: host.hostscript ? 
+        (Array.isArray(host.hostscript.script) ? host.hostscript.script : [host.hostscript.script]).map(script => ({
+          id: script['@_id'],
+          output: script['@_output']
+        })) : 
+        []
+    };
   }, []);
+
+  const updateDataWithNewScans = useCallback((newScansData) => {
+    setProcessedData(prevData => {
+      const updatedData = [...prevData];
+      const newHosts = [];
+
+      newScansData.forEach(newScanData => {
+        if (!newScanData || !newScanData.nmaprun || !newScanData.nmaprun.host) return;
+
+        const hosts = Array.isArray(newScanData.nmaprun.host) ? newScanData.nmaprun.host : [newScanData.nmaprun.host];
+        hosts.forEach(host => {
+          const processedHost = processHost(host);
+          const existingHostIndex = updatedData.findIndex(h => h.ip === processedHost.ip);
+
+          if (existingHostIndex !== -1) {
+            // Update existing host
+            const existingHost = updatedData[existingHostIndex];
+            existingHost.ports = [...new Set([...existingHost.ports, ...processedHost.ports])];
+            existingHost.portCount = existingHost.ports.length;
+            
+            processedHost.portDetails.forEach(newPort => {
+              const existingPortIndex = existingHost.portDetails.findIndex(p => p.port === newPort.port);
+              if (existingPortIndex !== -1) {
+                existingHost.portDetails[existingPortIndex] = {
+                  ...existingHost.portDetails[existingPortIndex],
+                  ...newPort
+                };
+              } else {
+                existingHost.portDetails.push(newPort);
+              }
+            });
+
+            existingHost.hostScripts = [...existingHost.hostScripts, ...processedHost.hostScripts];
+          } else {
+            // Add new host
+            newHosts.push(processedHost);
+          }
+        });
+      });
+
+      return [...updatedData, ...newHosts];
+    });
+  }, [processHost]);
+
+  const onDrop = useCallback((acceptedFiles) => {
+    const processFile = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const content = e.target.result;
+            const parser = new XMLParser({ ignoreAttributes: false });
+            const result = parser.parse(content);
+            resolve(result);
+          } catch (err) {
+            console.error("Error parsing XML file:", err);
+            reject(err);
+          }
+        };
+        reader.readAsText(file);
+      });
+    };
+
+    Promise.all(acceptedFiles.map(processFile))
+      .then(results => {
+        updateDataWithNewScans(results);
+      })
+      .catch(error => {
+        console.error("Error processing dropped files:", error);
+        // Optionally show an error message to the user
+      });
+  }, [updateDataWithNewScans]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
@@ -62,18 +152,53 @@ const NmapOutputViewer = () => {
         const content = e.target.result;
         const parser = new XMLParser({ ignoreAttributes: false });
         const result = parser.parse(content);
-        // setXmlData(result); // Commentez ou supprimez cette ligne si xmlData n'est plus utilisé
         const initialProcessedData = processXmlData(result);
         setProcessedData(initialProcessedData);
         setError(null);
+        setIsInitialFileLoaded(true);
       } catch (err) {
         setError("Error parsing XML file. Please ensure the file is in valid XML format.");
-        // setXmlData(null); // Commentez ou supprimez cette ligne si xmlData n'est plus utilisé
         setProcessedData(null);
+        setIsInitialFileLoaded(false);
       }
     };
 
     reader.readAsText(file);
+  };
+
+  const handleAdditionalFilesUpload = (event) => {
+    const files = Array.from(event.target.files);
+    processMultipleFiles(files);
+  };
+
+  const processMultipleFiles = (files) => {
+    const processFile = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const content = e.target.result;
+            const parser = new XMLParser({ ignoreAttributes: false });
+            const result = parser.parse(content);
+            resolve(result);
+          } catch (err) {
+            console.error(`Error parsing XML file ${file.name}:`, err);
+            reject(err);
+          }
+        };
+        reader.readAsText(file);
+      });
+    };
+
+    Promise.all(files.map(processFile))
+      .then(results => {
+        console.log(`Successfully processed ${results.length} additional file(s)`);
+        updateDataWithNewScans(results);
+      })
+      .catch(error => {
+        console.error("Error processing additional files:", error);
+        setError("Error processing additional files. Please ensure all files are valid XML format.");
+      });
   };
 
   const processXmlData = (data) => {
@@ -587,79 +712,6 @@ const NmapOutputViewer = () => {
     return data.map(item => generateNmapCommand(item.ip, item.portDetails)).join('\n');
   };
 
-  const updateDataWithNewScan = (newScanData) => {
-    if (!newScanData || !newScanData.nmaprun || !newScanData.nmaprun.host) return;
-
-    const newHosts = Array.isArray(newScanData.nmaprun.host) ? newScanData.nmaprun.host : [newScanData.nmaprun.host];
-
-    setProcessedData(prevData => {
-      const updatedData = [...prevData];
-      newHosts.forEach(newHost => {
-        const address = newHost.address;
-        const ip = Array.isArray(address) ? address.find(addr => addr['@_addrtype'] === 'ipv4')['@_addr'] : address['@_addr'];
-        const existingHostIndex = updatedData.findIndex(host => host.ip === ip);
-
-        if (existingHostIndex !== -1) {
-          // Update existing host
-          const existingHost = updatedData[existingHostIndex];
-          const newPorts = Array.isArray(newHost.ports.port) ? newHost.ports.port : [newHost.ports.port];
-          
-          newPorts.forEach(newPort => {
-            const portId = newPort['@_portid'];
-            const existingPortIndex = existingHost.portDetails.findIndex(p => p.port === portId);
-            
-            if (existingPortIndex !== -1) {
-              // Update existing port
-              const existingPort = existingHost.portDetails[existingPortIndex];
-              existingHost.portDetails[existingPortIndex] = {
-                ...existingPort,
-                state: newPort.state['@_state'] || existingPort.state,
-                service: (newPort.service && newPort.service['@_name']) || existingPort.service,
-                product: (newPort.service && newPort.service['@_product']) || existingPort.product,
-                version: (newPort.service && newPort.service['@_version']) || existingPort.version,
-                extraInfo: (newPort.service && newPort.service['@_extrainfo']) || existingPort.extraInfo,
-                ostype: (newPort.service && newPort.service['@_ostype']) || existingPort.ostype,
-                scripts: newPort.script ? 
-                  (Array.isArray(newPort.script) ? newPort.script : [newPort.script]) : 
-                  existingPort.scripts
-              };
-            } else if (newPort.state['@_state'] === 'open') {
-              // Add new open port
-              existingHost.portDetails.push({
-                port: portId,
-                state: newPort.state['@_state'],
-                service: newPort.service ? newPort.service['@_name'] : 'unknown',
-                product: newPort.service && newPort.service['@_product'] ? newPort.service['@_product'] : '',
-                version: newPort.service && newPort.service['@_version'] ? newPort.service['@_version'] : '',
-                extraInfo: newPort.service && newPort.service['@_extrainfo'] ? newPort.service['@_extrainfo'] : '',
-                ostype: newPort.service && newPort.service['@_ostype'] ? newPort.service['@_ostype'] : '',
-                scripts: newPort.script ? (Array.isArray(newPort.script) ? newPort.script : [newPort.script]) : []
-              });
-            }
-          });
-
-          // Update ports list and count
-          existingHost.ports = existingHost.portDetails.filter(p => p.state === 'open').map(p => p.port);
-          existingHost.portCount = existingHost.ports.length;
-
-          // Update host scripts
-          if (newHost.hostscript) {
-            const newHostScripts = Array.isArray(newHost.hostscript.script) ? 
-              newHost.hostscript.script : 
-              [newHost.hostscript.script];
-            
-            existingHost.hostScripts = newHostScripts.map(script => ({
-              id: script['@_id'],
-              output: script['@_output']
-            }));
-          }
-        }
-      });
-
-      return updatedData;
-    });
-  };
-
   const formatText = (text) => {
     if (typeof text !== 'string') return text;
     return text.replace(/&#xa;/g, '\n');
@@ -678,6 +730,61 @@ const NmapOutputViewer = () => {
       }, 2);
     }
     return '';
+  };
+
+  const toggleAllHosts = () => {
+    setAllExpanded(!allExpanded);
+    setShowHostScripts(prevState => {
+      const newState = {};
+      sortedData.forEach(item => {
+        newState[item.id] = !allExpanded;
+      });
+      return newState;
+    });
+    setExpandedPorts(prevState => {
+      const newState = {};
+      sortedData.forEach(item => {
+        item.portDetails.forEach(port => {
+          newState[`${item.id}-${port.port}`] = !allExpanded;
+        });
+      });
+      return newState;
+    });
+  };
+
+  const togglePort = (hostId, port) => {
+    setExpandedPorts(prevState => ({
+      ...prevState,
+      [`${hostId}-${port}`]: !prevState[`${hostId}-${port}`]
+    }));
+  };
+
+  useEffect(() => {
+    if (processedData) {
+      const initialExpandedPorts = {};
+      processedData.forEach(item => {
+        item.portDetails.forEach(port => {
+          initialExpandedPorts[`${item.id}-${port.port}`] = false;
+        });
+      });
+      setExpandedPorts(initialExpandedPorts);
+    }
+  }, [processedData]);
+
+  const toggleHostExpansion = (hostId) => {
+    setExpandedHosts(prev => {
+      const newState = { ...prev };
+      newState[hostId] = !prev[hostId];
+      return newState;
+    });
+
+    setExpandedPorts(prev => {
+      const newState = { ...prev };
+      sortedData.find(item => item.id === hostId)?.portDetails.forEach(port => {
+        newState[`${hostId}-${port.port}`] = !expandedHosts[hostId];
+      });
+      return newState;
+    });
   };
 
   return (
@@ -792,22 +899,52 @@ const NmapOutputViewer = () => {
           <div style={{ paddingTop: `${legendHeight + 20}px` }} className="p-4">
             <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
             {error && <p className="text-red-500 mb-4">{error}</p>}
+            {isInitialFileLoaded && (
+              <div className="mb-4 mt-4">
+                <p className="text-sm text-gray-600 mb-2">
+                  You can update the scan results by uploading additional XML files.
+                </p>
+                <button
+                  onClick={() => multipleFileInputRef.current.click()}
+                  className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded flex items-center"
+                >
+                  <FaFileUpload className="mr-2" />
+                  Update with Additional XML Files
+                </button>
+                <input
+                  type="file"
+                  ref={multipleFileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={handleAdditionalFilesUpload}
+                  multiple
+                  accept=".xml"
+                />
+              </div>
+            )}
             {sortedData && (
               <div className="space-y-12">
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex justify-between items-center mt-8 mb-4">
                   <p className="text-xl font-bold">Total number of hosts: {sortedData.length}</p>
-                  <div className="relative">
-                    <FaClipboard 
-                      className="text-2xl cursor-pointer hover:text-blue-500"
-                      onMouseEnter={() => setIsHoveringAllCommands(true)}
-                      onMouseLeave={() => setIsHoveringAllCommands(false)}
-                      onClick={() => copyToClipboard(generateAllNmapCommands(sortedData))}
-                    />
-                    {isHoveringAllCommands && (
-                      <div className="absolute right-0 mt-2 p-2 bg-white text-black rounded shadow-lg z-10 w-64">
-                        <p className="text-xs">Copy all Nmap commands</p>
-                      </div>
-                    )}
+                  <div className="flex items-center">
+                    <div className="relative mr-4">
+                      <FaClipboard 
+                        className="text-2xl cursor-pointer hover:text-blue-500"
+                        onMouseEnter={() => setIsHoveringAllCommands(true)}
+                        onMouseLeave={() => setIsHoveringAllCommands(false)}
+                        onClick={() => copyToClipboard(generateAllNmapCommands(sortedData))}
+                      />
+                      {isHoveringAllCommands && (
+                        <div className="absolute right-0 mt-2 p-2 bg-white text-black rounded shadow-lg z-10 w-64">
+                          <p className="text-xs">Copy all Nmap commands</p>
+                        </div>
+                      )}
+                    </div>
+                    <button 
+                      onClick={toggleAllHosts}
+                      className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                    >
+                      {allExpanded ? 'Collapse All' : 'Expand All'}
+                    </button>
                   </div>
                 </div>
                 {sortedData.map((item) => (
@@ -844,6 +981,12 @@ const NmapOutputViewer = () => {
                               </div>
                             )}
                           </div>
+                          <button 
+                            onClick={() => toggleHostExpansion(item.id)}
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2"
+                          >
+                            {expandedHosts[item.id] ? 'Collapse' : 'Expand'} Host
+                          </button>
                           {item.hostScripts && item.hostScripts.length > 0 && (
                             <button 
                               onClick={() => setShowHostScripts(prev => ({...prev, [item.id]: !prev[item.id]}))}
@@ -854,7 +997,7 @@ const NmapOutputViewer = () => {
                           )}
                         </div>
                       </div>
-                      {showHostScripts[item.id] && (
+                      {(showHostScripts[item.id] || allExpanded) && (
                         <div className="mt-4 bg-blue-700 p-4 rounded">
                           {item.hostScripts.map((script, index) => (
                             <div key={index} className="mb-4">
@@ -883,7 +1026,7 @@ const NmapOutputViewer = () => {
                             <React.Fragment key={detailIndex}>
                               <tr 
                                 className={`${getPortStyle(detail.port, detail.service)} cursor-pointer`}
-                                onClick={() => setSelectedPort(selectedPort === detail.port ? null : detail.port)}
+                                onClick={() => togglePort(item.id, detail.port)}
                               >
                                 <td className="p-2 border-b">{detail.port}</td>
                                 <td className="p-2 border-b font-semibold">{detail.service}</td>
@@ -894,13 +1037,13 @@ const NmapOutputViewer = () => {
                                     getWebLink(item.ip, item.host, detail.port, detail.service)}
                                 </td>
                               </tr>
-                              {selectedPort === detail.port && (
+                              {(expandedPorts[`${item.id}-${detail.port}`] || expandedHosts[item.id] || allExpanded) && (
                                 <tr>
                                   <td colSpan="5" className="p-2 bg-gray-100">
                                     <div className="text-sm">
                                       <p><strong>Extra Info:</strong> {formatText(detail.extraInfo)}</p>
                                       <p><strong>OS Type:</strong> {formatText(detail.ostype)}</p>
-                                      {detail.scripts.map((script, scriptIndex) => (
+                                      {detail.scripts && detail.scripts.map((script, scriptIndex) => (
                                         <div key={scriptIndex} className="mt-2">
                                           <p><strong>Script ID:</strong> {script['@_id']}</p>
                                           <pre className="whitespace-pre-wrap bg-gray-200 p-2 rounded">
