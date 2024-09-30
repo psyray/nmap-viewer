@@ -1,11 +1,14 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { XMLParser } from 'fast-xml-parser';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { FaClipboard } from 'react-icons/fa';
+import { useDropzone } from 'react-dropzone';
 
 const NmapOutputViewer = () => {
   // State variables
-  const [xmlData, setXmlData] = useState(null);
+  // const [xmlData, setXmlData] = useState(null);
+  const [processedData, setProcessedData] = useState(null);
   const [error, setError] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: 'ip', direction: 'ascending' });
   const [activeFilters, setActiveFilters] = useState([]);
@@ -16,10 +19,38 @@ const NmapOutputViewer = () => {
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [legendHeight, setLegendHeight] = useState(0);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isHoveringAllCommands, setIsHoveringAllCommands] = useState(false);
+  const [selectedPort, setSelectedPort] = useState(null);
+  const [showHostScripts, setShowHostScripts] = useState({});
+  const [hoveredCommand, setHoveredCommand] = useState(null);
 
   // Refs
   const sidebarRef = useRef(null);
   const legendRef = useRef(null);
+
+  const onDrop = useCallback((acceptedFiles) => {
+    acceptedFiles.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const content = e.target.result;
+          const parser = new XMLParser({ ignoreAttributes: false });
+          const result = parser.parse(content);
+          updateDataWithNewScan(result);
+        } catch (err) {
+          console.error("Error parsing XML file:", err);
+          // Optionally show an error message to the user
+        }
+      };
+      reader.readAsText(file);
+    });
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
+    onDrop,
+    accept: '.xml',
+    noClick: true, // Prevent click to open file dialog
+  });
 
   // Function to handle XML file upload
   const handleXmlFileUpload = (event) => {
@@ -31,22 +62,24 @@ const NmapOutputViewer = () => {
         const content = e.target.result;
         const parser = new XMLParser({ ignoreAttributes: false });
         const result = parser.parse(content);
-        setXmlData(result);
+        // setXmlData(result); // Commentez ou supprimez cette ligne si xmlData n'est plus utilisé
+        const initialProcessedData = processXmlData(result);
+        setProcessedData(initialProcessedData);
         setError(null);
       } catch (err) {
         setError("Error parsing XML file. Please ensure the file is in valid XML format.");
-        setXmlData(null);
+        // setXmlData(null); // Commentez ou supprimez cette ligne si xmlData n'est plus utilisé
+        setProcessedData(null);
       }
     };
 
     reader.readAsText(file);
   };
 
-  // Process the XML data
-  const processedData = useMemo(() => {
-    if (!xmlData || !xmlData.nmaprun || !xmlData.nmaprun.host) return null;
+  const processXmlData = (data) => {
+    if (!data || !data.nmaprun || !data.nmaprun.host) return null;
 
-    const hosts = Array.isArray(xmlData.nmaprun.host) ? xmlData.nmaprun.host : [xmlData.nmaprun.host];
+    const hosts = Array.isArray(data.nmaprun.host) ? data.nmaprun.host : [data.nmaprun.host];
     
     return hosts.map(host => {
       const address = host.address;
@@ -56,6 +89,11 @@ const NmapOutputViewer = () => {
       
       const openPorts = ports.filter(port => port.state['@_state'] === 'open');
       
+      // Process hostscript
+      const hostScripts = host.hostscript ? 
+        (Array.isArray(host.hostscript.script) ? host.hostscript.script : [host.hostscript.script]) : 
+        [];
+
       return {
         host: hostname,
         ip: ip,
@@ -67,10 +105,17 @@ const NmapOutputViewer = () => {
           service: port.service ? port.service['@_name'] : 'unknown',
           product: port.service && port.service['@_product'] ? port.service['@_product'] : '',
           version: port.service && port.service['@_version'] ? port.service['@_version'] : '',
+          extraInfo: port.service && port.service['@_extrainfo'] ? port.service['@_extrainfo'] : '',
+          ostype: port.service && port.service['@_ostype'] ? port.service['@_ostype'] : '',
+          scripts: port.script ? (Array.isArray(port.script) ? port.script : [port.script]) : []
         })),
+        hostScripts: hostScripts.map(script => ({
+          id: script['@_id'],
+          output: script['@_output']
+        }))
       };
     });
-  }, [xmlData]);
+  };
 
   // Function to compare IP addresses
   const compareIP = (ip1, ip2) => {
@@ -527,8 +572,122 @@ const NmapOutputViewer = () => {
     });
   };
 
+  const generateNmapCommand = (host, ports) => {
+    const portList = ports.map(p => p.port).join(',');
+    return `nmap -sV -sC -p${portList} -oA scan_${host.replace(/[^a-zA-Z0-9]/g, '_')} ${host}`;
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Nmap command copied to clipboard!');
+    });
+  };
+
+  const generateAllNmapCommands = (data) => {
+    return data.map(item => generateNmapCommand(item.ip, item.portDetails)).join('\n');
+  };
+
+  const updateDataWithNewScan = (newScanData) => {
+    if (!newScanData || !newScanData.nmaprun || !newScanData.nmaprun.host) return;
+
+    const newHosts = Array.isArray(newScanData.nmaprun.host) ? newScanData.nmaprun.host : [newScanData.nmaprun.host];
+
+    setProcessedData(prevData => {
+      const updatedData = [...prevData];
+      newHosts.forEach(newHost => {
+        const address = newHost.address;
+        const ip = Array.isArray(address) ? address.find(addr => addr['@_addrtype'] === 'ipv4')['@_addr'] : address['@_addr'];
+        const existingHostIndex = updatedData.findIndex(host => host.ip === ip);
+
+        if (existingHostIndex !== -1) {
+          // Update existing host
+          const existingHost = updatedData[existingHostIndex];
+          const newPorts = Array.isArray(newHost.ports.port) ? newHost.ports.port : [newHost.ports.port];
+          
+          newPorts.forEach(newPort => {
+            const portId = newPort['@_portid'];
+            const existingPortIndex = existingHost.portDetails.findIndex(p => p.port === portId);
+            
+            if (existingPortIndex !== -1) {
+              // Update existing port
+              const existingPort = existingHost.portDetails[existingPortIndex];
+              existingHost.portDetails[existingPortIndex] = {
+                ...existingPort,
+                state: newPort.state['@_state'] || existingPort.state,
+                service: (newPort.service && newPort.service['@_name']) || existingPort.service,
+                product: (newPort.service && newPort.service['@_product']) || existingPort.product,
+                version: (newPort.service && newPort.service['@_version']) || existingPort.version,
+                extraInfo: (newPort.service && newPort.service['@_extrainfo']) || existingPort.extraInfo,
+                ostype: (newPort.service && newPort.service['@_ostype']) || existingPort.ostype,
+                scripts: newPort.script ? 
+                  (Array.isArray(newPort.script) ? newPort.script : [newPort.script]) : 
+                  existingPort.scripts
+              };
+            } else if (newPort.state['@_state'] === 'open') {
+              // Add new open port
+              existingHost.portDetails.push({
+                port: portId,
+                state: newPort.state['@_state'],
+                service: newPort.service ? newPort.service['@_name'] : 'unknown',
+                product: newPort.service && newPort.service['@_product'] ? newPort.service['@_product'] : '',
+                version: newPort.service && newPort.service['@_version'] ? newPort.service['@_version'] : '',
+                extraInfo: newPort.service && newPort.service['@_extrainfo'] ? newPort.service['@_extrainfo'] : '',
+                ostype: newPort.service && newPort.service['@_ostype'] ? newPort.service['@_ostype'] : '',
+                scripts: newPort.script ? (Array.isArray(newPort.script) ? newPort.script : [newPort.script]) : []
+              });
+            }
+          });
+
+          // Update ports list and count
+          existingHost.ports = existingHost.portDetails.filter(p => p.state === 'open').map(p => p.port);
+          existingHost.portCount = existingHost.ports.length;
+
+          // Update host scripts
+          if (newHost.hostscript) {
+            const newHostScripts = Array.isArray(newHost.hostscript.script) ? 
+              newHost.hostscript.script : 
+              [newHost.hostscript.script];
+            
+            existingHost.hostScripts = newHostScripts.map(script => ({
+              id: script['@_id'],
+              output: script['@_output']
+            }));
+          }
+        }
+      });
+
+      return updatedData;
+    });
+  };
+
+  const formatText = (text) => {
+    if (typeof text !== 'string') return text;
+    return text.replace(/&#xa;/g, '\n');
+  };
+
+  const formatScriptOutput = (output) => {
+    if (typeof output === 'string') {
+      return formatText(output);
+    }
+    if (typeof output === 'object') {
+      return JSON.stringify(output, (key, value) => {
+        if (typeof value === 'string') {
+          return formatText(value);
+        }
+        return value;
+      }, 2);
+    }
+    return '';
+  };
+
   return (
-    <div className="flex">
+    <div {...getRootProps()} className="flex">
+      <input {...getInputProps()} />
+      {isDragActive && (
+        <div className="fixed inset-0 bg-blue-500 bg-opacity-50 z-50 flex items-center justify-center">
+          <p className="text-white text-2xl font-bold">Drop XML files here to update scan results</p>
+        </div>
+      )}
       {/* Sidebar */}
       <div 
         ref={sidebarRef}
@@ -635,7 +794,22 @@ const NmapOutputViewer = () => {
             {error && <p className="text-red-500 mb-4">{error}</p>}
             {sortedData && (
               <div className="space-y-12">
-                <p className="mb-4 text-xl font-bold">Total number of hosts: {sortedData.length}</p>
+                <div className="flex justify-between items-center mb-4">
+                  <p className="text-xl font-bold">Total number of hosts: {sortedData.length}</p>
+                  <div className="relative">
+                    <FaClipboard 
+                      className="text-2xl cursor-pointer hover:text-blue-500"
+                      onMouseEnter={() => setIsHoveringAllCommands(true)}
+                      onMouseLeave={() => setIsHoveringAllCommands(false)}
+                      onClick={() => copyToClipboard(generateAllNmapCommands(sortedData))}
+                    />
+                    {isHoveringAllCommands && (
+                      <div className="absolute right-0 mt-2 p-2 bg-white text-black rounded shadow-lg z-10 w-64">
+                        <p className="text-xs">Copy all Nmap commands</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 {sortedData.map((item) => (
                   <div 
                     key={item.id} 
@@ -643,14 +817,55 @@ const NmapOutputViewer = () => {
                     className={`bg-white rounded-lg shadow-md overflow-hidden mt-4 mb-4 ${selectedServerId === item.id ? 'border-2 border-blue-500' : ''}`}
                   >
                     <div className="bg-blue-600 text-white p-4">
-                      <h2 className="text-2xl font-bold">{item.host}</h2>
-                      <p className="text-lg">IP: {item.ip}</p>
-                      <div className="flex items-center mt-1">
-                        <span className="text-sm mr-2">Number of open ports:</span>
-                        <span className={`text-sm font-bold text-white px-2 py-1 rounded-full ${getPortCountColor(item.portDetails.length)}`}>
-                          {item.portDetails.length}
-                        </span>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <h2 className="text-2xl font-bold">{item.host}</h2>
+                          <p className="text-lg">IP: {item.ip}</p>
+                          <div className="flex items-center mt-1">
+                            <span className="text-sm mr-2">Number of open ports:</span>
+                            <span className={`text-sm font-bold text-white px-2 py-1 rounded-full ${getPortCountColor(item.portDetails.length)}`}>
+                              {item.portDetails.length}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center">
+                          <div className="relative mr-4">
+                            <FaClipboard 
+                              className="text-2xl cursor-pointer hover:text-blue-300"
+                              onMouseEnter={() => setHoveredCommand(item.id)}
+                              onMouseLeave={() => setHoveredCommand(null)}
+                              onClick={() => copyToClipboard(generateNmapCommand(item.ip, item.portDetails))}
+                            />
+                            {hoveredCommand === item.id && (
+                              <div className="absolute right-0 mt-2 p-2 bg-white text-black rounded shadow-lg z-10 w-96">
+                                <code className="text-xs break-all">
+                                  {generateNmapCommand(item.ip, item.portDetails)}
+                                </code>
+                              </div>
+                            )}
+                          </div>
+                          {item.hostScripts && item.hostScripts.length > 0 && (
+                            <button 
+                              onClick={() => setShowHostScripts(prev => ({...prev, [item.id]: !prev[item.id]}))}
+                              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                            >
+                              {showHostScripts[item.id] ? 'Hide Host Scripts' : 'Show Host Scripts'}
+                            </button>
+                          )}
+                        </div>
                       </div>
+                      {showHostScripts[item.id] && (
+                        <div className="mt-4 bg-blue-700 p-4 rounded">
+                          {item.hostScripts.map((script, index) => (
+                            <div key={index} className="mb-4">
+                              <h3 className="font-bold">{script.id}</h3>
+                              <pre className="whitespace-pre-wrap text-sm">
+                                {formatText(script.output)}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="p-4">
                       <table className="w-full border-collapse">
@@ -665,16 +880,39 @@ const NmapOutputViewer = () => {
                         </thead>
                         <tbody>
                           {item.portDetails.map((detail, detailIndex) => (
-                            <tr key={detailIndex} className={getPortStyle(detail.port, detail.service)}>
-                              <td className="p-2 border-b">{detail.port}</td>
-                              <td className="p-2 border-b font-semibold">{detail.service}</td>
-                              <td className="p-2 border-b">{detail.product}</td>
-                              <td className="p-2 border-b">{detail.version}</td>
-                              <td className="p-2 border-b">
-                                {(isHttpService(detail.service) || isSmbService(detail.service)) && 
-                                  getWebLink(item.ip, item.host, detail.port, detail.service)}
-                              </td>
-                            </tr>
+                            <React.Fragment key={detailIndex}>
+                              <tr 
+                                className={`${getPortStyle(detail.port, detail.service)} cursor-pointer`}
+                                onClick={() => setSelectedPort(selectedPort === detail.port ? null : detail.port)}
+                              >
+                                <td className="p-2 border-b">{detail.port}</td>
+                                <td className="p-2 border-b font-semibold">{detail.service}</td>
+                                <td className="p-2 border-b">{detail.product}</td>
+                                <td className="p-2 border-b">{detail.version}</td>
+                                <td className="p-2 border-b">
+                                  {(isHttpService(detail.service) || isSmbService(detail.service)) && 
+                                    getWebLink(item.ip, item.host, detail.port, detail.service)}
+                                </td>
+                              </tr>
+                              {selectedPort === detail.port && (
+                                <tr>
+                                  <td colSpan="5" className="p-2 bg-gray-100">
+                                    <div className="text-sm">
+                                      <p><strong>Extra Info:</strong> {formatText(detail.extraInfo)}</p>
+                                      <p><strong>OS Type:</strong> {formatText(detail.ostype)}</p>
+                                      {detail.scripts.map((script, scriptIndex) => (
+                                        <div key={scriptIndex} className="mt-2">
+                                          <p><strong>Script ID:</strong> {script['@_id']}</p>
+                                          <pre className="whitespace-pre-wrap bg-gray-200 p-2 rounded">
+                                            {formatScriptOutput(script['@_output'])}
+                                          </pre>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           ))}
                         </tbody>
                       </table>
