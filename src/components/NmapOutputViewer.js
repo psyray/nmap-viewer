@@ -4,22 +4,24 @@ import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
 const NmapOutputViewer = () => {
+  // State variables
   const [xmlData, setXmlData] = useState(null);
   const [error, setError] = useState(null);
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'ascending' });
+  const [sortConfig, setSortConfig] = useState({ key: 'ip', direction: 'ascending' });
   const [activeFilters, setActiveFilters] = useState([]);
   const [filterMode, setFilterMode] = useState('OR');
   const [textFilter, setTextFilter] = useState('');
-  const [sidebarWidth, setSidebarWidth] = useState(256); // Largeur par défaut
-  const [sidebarSortConfig, setSidebarSortConfig] = useState({ key: 'ip', direction: 'ascending' });
+  const [sidebarWidth, setSidebarWidth] = useState(256); // Default width
   const [allServices, setAllServices] = useState([]);
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [legendHeight, setLegendHeight] = useState(0);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
-  const hostRefs = useRef({});
+  // Refs
   const sidebarRef = useRef(null);
   const legendRef = useRef(null);
 
+  // Function to handle XML file upload
   const handleXmlFileUpload = (event) => {
     const file = event.target.files[0];
     const reader = new FileReader();
@@ -40,6 +42,7 @@ const NmapOutputViewer = () => {
     reader.readAsText(file);
   };
 
+  // Process the XML data
   const processedData = useMemo(() => {
     if (!xmlData || !xmlData.nmaprun || !xmlData.nmaprun.host) return null;
 
@@ -69,31 +72,28 @@ const NmapOutputViewer = () => {
     });
   }, [xmlData]);
 
-  const sortedData = useMemo(() => {
-    if (!processedData) return null;
-    let sortableItems = [...processedData];
-    if (sortConfig.key !== null) {
-      sortableItems.sort((a, b) => {
-        if (a[sortConfig.key] < b[sortConfig.key]) {
-          return sortConfig.direction === 'ascending' ? -1 : 1;
-        }
-        if (a[sortConfig.key] > b[sortConfig.key]) {
-          return sortConfig.direction === 'ascending' ? 1 : -1;
-        }
-        return 0;
-      });
+  // Function to compare IP addresses
+  const compareIP = (ip1, ip2) => {
+    const parts1 = ip1.split('.').map(Number);
+    const parts2 = ip2.split('.').map(Number);
+    for (let i = 0; i < 4; i++) {
+      if (parts1[i] !== parts2[i]) {
+        return parts1[i] - parts2[i];
+      }
     }
-    return sortableItems;
-  }, [processedData, sortConfig]);
-
-  const requestSort = (key) => {
-    let direction = 'ascending';
-    if (sidebarSortConfig.key === key && sidebarSortConfig.direction === 'ascending') {
-      direction = 'descending';
-    }
-    setSidebarSortConfig({ key, direction });
+    return 0;
   };
 
+  // Function to request sorting
+  const requestSort = (key) => {
+    let direction = 'ascending';
+    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  // Service detection functions
   const isHttpService = (service) => {
     const httpKeywords = ['http', 'https', 'nginx', 'apache', 'tomcat', 'iis', 'webserver', 'web'];
     return httpKeywords.some(keyword => service.toLowerCase().includes(keyword));
@@ -143,6 +143,7 @@ const NmapOutputViewer = () => {
   const isJenkinsService = (service) => service.toLowerCase().includes('jenkins');
   const isElasticsearchService = (service) => service.toLowerCase().includes('elasticsearch');
 
+  // Function to get port style based on service
   const getPortStyle = (port, service) => {
     const standardHttpPorts = ['80', '443', '8080'];
     if (isSmbService(service)) {
@@ -167,6 +168,7 @@ const NmapOutputViewer = () => {
     return '';
   };
 
+  // Function to generate web links
   const getWebLink = (ip, hostname, port, service) => {
     if (isSmbService(service)) {
       return (
@@ -193,7 +195,13 @@ const NmapOutputViewer = () => {
       );
     }
 
-    const protocols = service.toLowerCase() === 'https' ? ['https'] : ['http', 'https'];
+    const httpsCommonPorts = ['443', '8443', '4443', '8843'];
+    const isHttps = httpsCommonPorts.some(httpsPort => port.includes(httpsPort)) || 
+                    service.toLowerCase() === 'https' ||
+                    service.toLowerCase().includes('ssl');
+
+    const protocols = isHttps ? ['https'] : ['http', 'https'];
+
     return (
       <div>
         {protocols.map(protocol => (
@@ -222,6 +230,7 @@ const NmapOutputViewer = () => {
     );
   };
 
+  // Function to export data to PDF
   const exportToPDF = () => {
     const doc = new jsPDF();
     doc.setFontSize(18);
@@ -254,6 +263,7 @@ const NmapOutputViewer = () => {
     doc.save('nmap_scan_report.pdf');
   };
 
+  // Function to toggle filters
   const toggleFilter = (filter) => {
     setActiveFilters(prev => 
       prev.includes(filter) 
@@ -262,17 +272,20 @@ const NmapOutputViewer = () => {
     );
   };
 
+  // Function to reset filters
   const resetFilters = () => {
     setActiveFilters([]);
     setTextFilter('');
   };
 
+  // Function to toggle filter mode
   const toggleFilterMode = () => {
     setFilterMode(prev => prev === 'OR' ? 'AND' : 'OR');
   };
 
+  // Filter and process the data
   const filteredData = useMemo(() => {
-    if (!sortedData) return null;
+    if (!processedData) return null;
     
     const serviceChecks = {
       http: (detail) => isHttpService(detail.service),
@@ -304,7 +317,7 @@ const NmapOutputViewer = () => {
     const foundServices = new Set();
 
     // Detect all services present in the data
-    sortedData.forEach(item => {
+    processedData.forEach(item => {
       item.portDetails.forEach(detail => {
         Object.keys(serviceChecks).forEach(service => {
           if (serviceChecks[service](detail)) {
@@ -316,8 +329,8 @@ const NmapOutputViewer = () => {
 
     setAllServices(Array.from(foundServices));
 
-    const filteredResults = sortedData.filter(item => {
-      // Vérifier si l'élément correspond au filtre de texte
+    const filteredResults = processedData.filter(item => {
+      // Check if the item matches the text filter
       const matchesTextFilter = !textFilter || 
         item.host.toLowerCase().includes(textFilter.toLowerCase()) ||
         item.ip.toLowerCase().includes(textFilter.toLowerCase()) ||
@@ -326,7 +339,7 @@ const NmapOutputViewer = () => {
           detail.port.toString().includes(textFilter)
         );
 
-      // Vérifier si l'élément correspond aux filtres de service
+      // Check if the item matches the service filters
       const matchesServiceFilters = activeFilters.length === 0 || 
         (filterMode === 'OR' 
           ? item.portDetails.some(detail => 
@@ -346,25 +359,43 @@ const NmapOutputViewer = () => {
       )
     }));
 
-    // Ajoutez un id unique à chaque élément
+    // Add a unique id to each item
     return filteredResults.map((item, index) => ({
       ...item,
-      id: `${item.ip}-${index}` // Crée un id unique basé sur l'IP et l'index
+      id: `${item.ip}-${index}` // Create a unique id based on IP and index
     }));
-  }, [sortedData, activeFilters, filterMode, textFilter]);
+  }, [processedData, activeFilters, filterMode, textFilter]);
 
+  // Sort the filtered data
+  const sortedData = useMemo(() => {
+    if (!filteredData) return null;
+    let sortableItems = [...filteredData];
+    if (sortConfig.key) {
+      sortableItems.sort((a, b) => {
+        if (sortConfig.key === 'portCount') {
+          return (b.portDetails.length - a.portDetails.length) * (sortConfig.direction === 'ascending' ? 1 : -1);
+        }
+        if (sortConfig.key === 'ip') {
+          return compareIP(a.ip, b.ip) * (sortConfig.direction === 'ascending' ? 1 : -1);
+        }
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? -1 : 1;
+        }
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [filteredData, sortConfig]);
+
+  // Function to handle text filter change
   const handleTextFilterChange = (event) => {
     setTextFilter(event.target.value);
   };
 
-  const scrollToHost = (hostId) => {
-    hostRefs.current[hostId]?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const truncateText = (text, maxLength) => {
-    return text.length > maxLength ? text.substring(0, maxLength - 3) + '...' : text;
-  };
-
+  // Function to get port count color
   const getPortCountColor = (count) => {
     if (count === 0) return 'bg-red-500';
     if (count <= 10) return 'bg-yellow-500';
@@ -373,51 +404,19 @@ const NmapOutputViewer = () => {
     return 'bg-green-500';
   };
 
-  const compareIP = (ip1, ip2) => {
-    const parts1 = ip1.split('.').map(Number);
-    const parts2 = ip2.split('.').map(Number);
-    for (let i = 0; i < 4; i++) {
-      if (parts1[i] !== parts2[i]) {
-        return parts1[i] - parts2[i];
-      }
-    }
-    return 0;
-  };
-
-  const sortedSidebarData = useMemo(() => {
-    if (!filteredData) return null;
-    let sortableItems = [...filteredData];
-    if (sidebarSortConfig.key) {
-      sortableItems.sort((a, b) => {
-        if (sidebarSortConfig.key === 'portCount') {
-          return b.portDetails.length - a.portDetails.length;
-        }
-        if (sidebarSortConfig.key === 'ip') {
-          return compareIP(a.ip, b.ip) * (sidebarSortConfig.direction === 'ascending' ? 1 : -1);
-        }
-        if (a[sidebarSortConfig.key] < b[sidebarSortConfig.key]) {
-          return sidebarSortConfig.direction === 'ascending' ? -1 : 1;
-        }
-        if (a[sidebarSortConfig.key] > b[sidebarSortConfig.key]) {
-          return sidebarSortConfig.direction === 'ascending' ? 1 : -1;
-        }
-        return 0;
-      });
-    }
-    return sortableItems;
-  }, [filteredData, sidebarSortConfig]);
-
+  // Effect to adjust sidebar width
   useEffect(() => {
     if (filteredData && sidebarRef.current) {
       const maxHostLength = Math.min(
         40,
         Math.max(...filteredData.map(item => Math.max(item.host.length, item.ip.length)))
       );
-      const newWidth = Math.max(256, maxHostLength * 10); // Largeur approximative basée sur le nombre de caractères
+      const newWidth = Math.max(256, maxHostLength * 10); // Approximate width based on character count
       setSidebarWidth(newWidth);
     }
   }, [filteredData]);
 
+  // Service colors for legend
   const serviceColors = {
     http: 'bg-yellow-100',
     smb: 'bg-red-100',
@@ -445,111 +444,20 @@ const NmapOutputViewer = () => {
     elasticsearch: 'bg-pink-200',
   };
 
-  const handlePrint = () => {
-    if (!filteredData) return;
-
-    const doc = new jsPDF();
-    const pageHeight = doc.internal.pageSize.height;
-
-    // Add title
-    doc.setFontSize(18);
-    doc.text('Nmap Scan Results', 14, 20);
-
-    // Add filters information
-    doc.setFontSize(12);
-    doc.text(`Active Filters: ${activeFilters.join(', ') || 'None'}`, 14, 30);
-    doc.text(`Filter Mode: ${filterMode}`, 14, 38);
-
-    // Add index
-    let yPosition = 50;
-    doc.setFontSize(16);
-    doc.text('Index', 14, yPosition);
-    yPosition += 10;
-
-    filteredData.forEach((item, index) => {
-      if (yPosition > pageHeight - 20) {
-        doc.addPage();
-        yPosition = 20;
-      }
-      doc.setFontSize(12);
-      doc.text(`${index + 1}. ${item.host} (${item.ip})`, 14, yPosition);
-      yPosition += 8;
-    });
-
-    // Add page break after index
-    doc.addPage();
-
-    // Add scan results
-    filteredData.forEach((item, index) => {
-      doc.setFontSize(16);
-      doc.text(`${index + 1}. Host: ${item.host}`, 14, 20);
-      doc.setFontSize(14);
-      doc.text(`IP: ${item.ip}`, 14, 30);
-      doc.text(`Open Ports: ${item.portDetails.length}`, 14, 40);
-
-      const tableData = item.portDetails
-        .filter(detail => {
-          if (activeFilters.length === 0) return true;
-          return activeFilters.some(filter => {
-            switch (filter) {
-              case 'http':
-                return isHttpService(detail.service);
-              case 'smb':
-                return isSmbService(detail.service);
-              case 'standard':
-                return ['80', '443', '8080'].includes(detail.port) && isHttpService(detail.service);
-              case 'ldap':
-                return isLdapService(detail.service);
-              case 'openssh':
-                return isOpenSSHService(detail.service);
-              case 'kerberos':
-                return isKerberosService(detail.service);
-              case 'mysql':
-                return isMySQLService(detail.service);
-              case 'nagios':
-                return isNagiosService(detail.service);
-              case 'rdp':
-                return isRDPService(detail.service);
-              // Ajoutez ici les autres services que vous avez définis
-              default:
-                return false;
-            }
-          });
-        })
-        .map(detail => [
-          detail.port,
-          detail.protocol,
-          detail.state,
-          detail.service,
-          detail.version
-        ]);
-
-      doc.autoTable({
-        startY: 50,
-        head: [['Port', 'Protocol', 'State', 'Service', 'Version']],
-        body: tableData,
-      });
-
-      if (index < filteredData.length - 1) {
-        doc.addPage();
-      }
-    });
-
-    doc.save('nmap_scan_results.pdf');
-  };
-
+  // Function to handle server click
   const handleServerClick = (id) => {
     setSelectedServerId(id);
     setTimeout(() => {
       const element = document.getElementById(id);
       if (element) {
-        const yOffset = -legendHeight - 20; // 20px de marge supplémentaire
+        const yOffset = -legendHeight - 20; // 20px additional margin
         const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
         window.scrollTo({top: y, behavior: 'smooth'});
       }
     }, 100);
   };
 
+  // Effect to scroll to selected server
   useEffect(() => {
     if (selectedServerId) {
       const element = document.getElementById(selectedServerId);
@@ -559,11 +467,65 @@ const NmapOutputViewer = () => {
     }
   }, [selectedServerId]);
 
+  // Effect to set legend height
   useEffect(() => {
     if (legendRef.current) {
       setLegendHeight(legendRef.current.offsetHeight);
     }
   }, []);
+
+  // Function to generate hosts file content
+  const generateHostsFileContent = () => {
+    if (!filteredData) return '';
+    
+    return filteredData
+      .sort((a, b) => compareIP(a.ip, b.ip))
+      .map(item => {
+        // If the hostname is an IP, don't include it in the hosts file
+        if (item.host === item.ip) {
+          return `${item.ip}`;
+        }
+        return `${item.ip}\t${item.host}`;
+      })
+      .join('\n');
+  };
+
+  // Function to export hosts file
+  const exportHostsFile = () => {
+    const content = generateHostsFileContent();
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'nmap_hosts.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Effect to handle scroll to top button visibility
+  useEffect(() => {
+    const toggleVisibility = () => {
+      if (window.pageYOffset > 300) {
+        setShowScrollTop(true);
+      } else {
+        setShowScrollTop(false);
+      }
+    };
+
+    window.addEventListener('scroll', toggleVisibility);
+
+    return () => window.removeEventListener('scroll', toggleVisibility);
+  }, []);
+
+  // Function to scroll to top
+  const scrollToTop = () => {
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    });
+  };
 
   return (
     <div className="flex">
@@ -588,7 +550,7 @@ const NmapOutputViewer = () => {
             </button>
           </div>
         </div>
-        {sortedSidebarData && sortedSidebarData.map((item) => (
+        {sortedData && sortedData.map((item) => (
           <div 
             key={item.id}
             onClick={() => handleServerClick(item.id)}
@@ -609,7 +571,7 @@ const NmapOutputViewer = () => {
       {/* Main content */}
       <div style={{ marginLeft: `${sidebarWidth}px` }} className="flex-grow">
         <div className="container mx-auto bg-gray-100">
-          {/* Legend, champ de filtrage et boutons */}
+          {/* Legend, filtering field and buttons */}
           <div 
             ref={legendRef}
             className="fixed top-0 left-0 right-0 bg-white shadow-md z-20 p-4"
@@ -645,6 +607,12 @@ const NmapOutputViewer = () => {
                 >
                   Export PDF
                 </button>
+                <button 
+                  onClick={exportHostsFile}
+                  className="px-2 py-1 bg-purple-500 text-white rounded text-sm"
+                >
+                  Export Hosts
+                </button>
               </div>
             </div>
             <div className="flex items-center space-x-4 flex-wrap">
@@ -665,10 +633,10 @@ const NmapOutputViewer = () => {
           <div style={{ paddingTop: `${legendHeight + 20}px` }} className="p-4">
             <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
             {error && <p className="text-red-500 mb-4">{error}</p>}
-            {filteredData && (
+            {sortedData && (
               <div className="space-y-12">
-                <p className="mb-4 text-xl font-bold">Total number of hosts: {filteredData.length}</p>
-                {filteredData.map((item) => (
+                <p className="mb-4 text-xl font-bold">Total number of hosts: {sortedData.length}</p>
+                {sortedData.map((item) => (
                   <div 
                     key={item.id} 
                     id={item.id}
@@ -718,6 +686,18 @@ const NmapOutputViewer = () => {
           </div>
         </div>
       </div>
+
+      {showScrollTop && (
+        <button
+          onClick={scrollToTop}
+          className="fixed bottom-5 right-5 bg-blue-500 text-white p-3 rounded-full shadow-lg hover:bg-blue-600 transition-colors duration-300"
+          aria-label="Scroll to top"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 };
