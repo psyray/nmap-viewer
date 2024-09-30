@@ -2,6 +2,8 @@
 
 Nmap Viewer is a web-based application designed to visualize and analyze the output of Nmap scans. It provides an intuitive interface for exploring network scan results, making it easier to understand and interpret the data collected by Nmap.
 
+![Nmap Viewer Screenshot](@nmap-viewer.png)
+
 ## Features
 
 - Parse and display Nmap XML output
