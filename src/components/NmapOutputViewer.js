@@ -10,12 +10,15 @@ const NmapOutputViewer = () => {
   const [activeFilters, setActiveFilters] = useState([]);
   const [filterMode, setFilterMode] = useState('OR');
   const [textFilter, setTextFilter] = useState('');
-  const [sidebarWidth, setSidebarWidth] = useState(256); // Default width
+  const [sidebarWidth, setSidebarWidth] = useState(256); // Largeur par défaut
   const [sidebarSortConfig, setSidebarSortConfig] = useState({ key: 'ip', direction: 'ascending' });
   const [allServices, setAllServices] = useState([]);
-  
+  const [selectedServerId, setSelectedServerId] = useState(null);
+  const [legendHeight, setLegendHeight] = useState(0);
+
   const hostRefs = useRef({});
   const sidebarRef = useRef(null);
+  const legendRef = useRef(null);
 
   const handleXmlFileUpload = (event) => {
     const file = event.target.files[0];
@@ -194,7 +197,7 @@ const NmapOutputViewer = () => {
     return (
       <div>
         {protocols.map(protocol => (
-          <React.Fragment key={protocol}>
+          <div key={protocol}>
             <a
               href={`${protocol}://${ip}:${port}`}
               target="_blank"
@@ -213,7 +216,7 @@ const NmapOutputViewer = () => {
                 {protocol} (Hostname)
               </a>
             )}
-          </React.Fragment>
+          </div>
         ))}
       </div>
     );
@@ -313,27 +316,42 @@ const NmapOutputViewer = () => {
 
     setAllServices(Array.from(foundServices));
 
-    const filteredHosts = sortedData.filter(item => {
-      if (activeFilters.length === 0) return true;
+    const filteredResults = sortedData.filter(item => {
+      // Vérifier si l'élément correspond au filtre de texte
+      const matchesTextFilter = !textFilter || 
+        item.host.toLowerCase().includes(textFilter.toLowerCase()) ||
+        item.ip.toLowerCase().includes(textFilter.toLowerCase()) ||
+        item.portDetails.some(detail => 
+          detail.service.toLowerCase().includes(textFilter.toLowerCase()) ||
+          detail.port.toString().includes(textFilter)
+        );
 
-      if (filterMode === 'OR') {
-        return item.portDetails.some(detail => 
-          activeFilters.some(filter => serviceChecks[filter](detail))
+      // Vérifier si l'élément correspond aux filtres de service
+      const matchesServiceFilters = activeFilters.length === 0 || 
+        (filterMode === 'OR' 
+          ? item.portDetails.some(detail => 
+              activeFilters.some(filter => serviceChecks[filter](detail))
+            )
+          : activeFilters.every(filter => 
+              item.portDetails.some(detail => serviceChecks[filter](detail))
+            )
         );
-      } else { // 'AND' mode
-        return activeFilters.every(filter => 
-          item.portDetails.some(detail => serviceChecks[filter](detail))
-        );
-      }
+
+      return matchesTextFilter && matchesServiceFilters;
     }).map(item => ({
       ...item,
       portDetails: item.portDetails.filter(detail => 
-        activeFilters.length === 0 || activeFilters.some(filter => serviceChecks[filter](detail))
+        activeFilters.length === 0 || 
+        activeFilters.some(filter => serviceChecks[filter](detail))
       )
     }));
 
-    return filteredHosts;
-  }, [sortedData, activeFilters, filterMode]);
+    // Ajoutez un id unique à chaque élément
+    return filteredResults.map((item, index) => ({
+      ...item,
+      id: `${item.ip}-${index}` // Crée un id unique basé sur l'IP et l'index
+    }));
+  }, [sortedData, activeFilters, filterMode, textFilter]);
 
   const handleTextFilterChange = (event) => {
     setTextFilter(event.target.value);
@@ -395,7 +413,7 @@ const NmapOutputViewer = () => {
         40,
         Math.max(...filteredData.map(item => Math.max(item.host.length, item.ip.length)))
       );
-      const newWidth = Math.max(256, maxHostLength * 10); // Approximate width based on character count
+      const newWidth = Math.max(256, maxHostLength * 10); // Largeur approximative basée sur le nombre de caractères
       setSidebarWidth(newWidth);
     }
   }, [filteredData]);
@@ -520,34 +538,64 @@ const NmapOutputViewer = () => {
     doc.save('nmap_scan_results.pdf');
   };
 
+  const handleServerClick = (id) => {
+    setSelectedServerId(id);
+    setTimeout(() => {
+      const element = document.getElementById(id);
+      if (element) {
+        const yOffset = -legendHeight - 20; // 20px de marge supplémentaire
+        const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({top: y, behavior: 'smooth'});
+      }
+    }, 100);
+  };
+
+  useEffect(() => {
+    if (selectedServerId) {
+      const element = document.getElementById(selectedServerId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [selectedServerId]);
+
+  useEffect(() => {
+    if (legendRef.current) {
+      setLegendHeight(legendRef.current.offsetHeight);
+    }
+  }, []);
+
   return (
     <div className="flex">
       {/* Sidebar */}
       <div 
         ref={sidebarRef}
+        className="fixed left-0 top-0 h-full bg-gray-100 overflow-y-auto" 
         style={{ width: `${sidebarWidth}px` }}
-        className="h-screen overflow-y-auto fixed left-0 top-0 bg-gray-100 p-4 border-r"
       >
         <h2 className="text-xl font-bold mb-4">Hosts</h2>
-        <div className="mb-4 flex space-x-2">
-          <button onClick={() => requestSort('host')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
-            Sort by Hostname
-          </button>
-          <button onClick={() => requestSort('ip')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
-            Sort by IP
-          </button>
-          <button onClick={() => requestSort('portCount')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
-            Sort by Ports
-          </button>
+        <div className="mb-4">
+          <span className="mr-2">Sort by:</span>
+          <div className="flex space-x-2">
+            <button onClick={() => requestSort('host')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
+              Hostname
+            </button>
+            <button onClick={() => requestSort('ip')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
+              IP
+            </button>
+            <button onClick={() => requestSort('portCount')} className="px-2 py-1 bg-blue-500 text-white rounded text-sm">
+              Ports
+            </button>
+          </div>
         </div>
-        {sortedSidebarData && sortedSidebarData.map((item, index) => (
+        {sortedSidebarData && sortedSidebarData.map((item) => (
           <div 
-            key={index} 
-            className="mb-2 p-2 bg-white rounded shadow cursor-pointer hover:bg-gray-200"
-            onClick={() => scrollToHost(index)}
+            key={item.id}
+            onClick={() => handleServerClick(item.id)}
+            className={`cursor-pointer hover:bg-gray-200 p-2 ${selectedServerId === item.id ? 'bg-blue-200' : ''}`}
           >
-            <p className="font-semibold truncate" title={item.host}>{truncateText(item.host, 40)}</p>
-            <p className="text-sm truncate" title={item.ip}>IP: {truncateText(item.ip, 40)}</p>
+            <p className="font-semibold break-words" title={item.host}>{item.host}</p>
+            <p className="text-sm break-words" title={item.ip}>IP: {item.ip}</p>
             <div className="flex items-center mt-1">
               <span className="text-sm mr-2">Open ports:</span>
               <span className={`text-sm font-bold text-white px-2 py-1 rounded-full ${getPortCountColor(item.portDetails.length)}`}>
@@ -560,32 +608,42 @@ const NmapOutputViewer = () => {
 
       {/* Main content */}
       <div style={{ marginLeft: `${sidebarWidth}px` }} className="flex-grow">
-        <div className="container mx-auto p-4 bg-gray-100">
-          <div className="sticky top-0 bg-white p-4 shadow-md mb-4 z-20">
+        <div className="container mx-auto bg-gray-100">
+          {/* Legend, champ de filtrage et boutons */}
+          <div 
+            ref={legendRef}
+            className="fixed top-0 left-0 right-0 bg-white shadow-md z-20 p-4"
+            style={{ marginLeft: `${sidebarWidth}px` }}
+          >
             <div className="flex justify-between items-center mb-4">
               <h1 className="text-2xl font-bold">Legend</h1>
-              <div>
-                <button
+              <div className="flex-grow mx-4">
+                <input
+                  type="text"
+                  placeholder="Filter results..."
+                  value={textFilter}
+                  onChange={handleTextFilterChange}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <button 
                   onClick={toggleFilterMode}
-                  className={`mr-2 px-4 py-2 rounded ${
-                    filterMode === 'OR' ? 'bg-blue-500 text-white' : 'bg-gray-300'
-                  }`}
+                  className="px-2 py-1 bg-blue-500 text-white rounded text-sm"
                 >
-                  OR
+                  Mode: {filterMode}
                 </button>
-                <button
-                  onClick={toggleFilterMode}
-                  className={`mr-2 px-4 py-2 rounded ${
-                    filterMode === 'AND' ? 'bg-blue-500 text-white' : 'bg-gray-300'
-                  }`}
-                >
-                  AND
-                </button>
-                <button
+                <button 
                   onClick={resetFilters}
-                  className="bg-gray-300 hover:bg-gray-400 text-black font-bold py-2 px-4 rounded"
+                  className="px-2 py-1 bg-red-500 text-white rounded text-sm"
                 >
-                  Reset Filters
+                  Reset
+                </button>
+                <button 
+                  onClick={exportToPDF}
+                  className="px-2 py-1 bg-green-500 text-white rounded text-sm"
+                >
+                  Export PDF
                 </button>
               </div>
             </div>
@@ -601,77 +659,63 @@ const NmapOutputViewer = () => {
                 </button>
               ))}
             </div>
-            <div className="mt-4">
-              <input
-                type="text"
-                placeholder="Filter results..."
-                value={textFilter}
-                onChange={handleTextFilterChange}
-                className="w-full p-2 border rounded"
-              />
-            </div>
-            {sortedData && (
-              <button
-                onClick={exportToPDF}
-                className="mt-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-              >
-                Export to PDF
-              </button>
-            )}
           </div>
 
-          <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
-          {error && <p className="text-red-500 mb-4">{error}</p>}
-          {filteredData && (
-            <div className="space-y-8">
-              <p className="mb-4 text-xl font-bold">Total number of hosts: {filteredData.length}</p>
-              {filteredData.map((item, index) => (
-                <div 
-                  key={index} 
-                  className="bg-white rounded-lg shadow-md overflow-hidden"
-                  ref={el => hostRefs.current[index] = el}
-                >
-                  <div className="bg-blue-600 text-white p-4">
-                    <h2 className="text-2xl font-bold">{item.host}</h2>
-                    <p className="text-lg">IP: {item.ip}</p>
-                    <div className="flex items-center mt-1">
-                      <span className="text-sm mr-2">Number of open ports:</span>
-                      <span className={`text-sm font-bold text-white px-2 py-1 rounded-full ${getPortCountColor(item.portDetails.length)}`}>
-                        {item.portDetails.length}
-                      </span>
+          {/* Content with dynamic padding */}
+          <div style={{ paddingTop: `${legendHeight + 20}px` }} className="p-4">
+            <input type="file" onChange={handleXmlFileUpload} accept=".xml" className="mb-4 p-2 border rounded" />
+            {error && <p className="text-red-500 mb-4">{error}</p>}
+            {filteredData && (
+              <div className="space-y-12">
+                <p className="mb-4 text-xl font-bold">Total number of hosts: {filteredData.length}</p>
+                {filteredData.map((item) => (
+                  <div 
+                    key={item.id} 
+                    id={item.id}
+                    className={`bg-white rounded-lg shadow-md overflow-hidden mt-4 mb-4 ${selectedServerId === item.id ? 'border-2 border-blue-500' : ''}`}
+                  >
+                    <div className="bg-blue-600 text-white p-4">
+                      <h2 className="text-2xl font-bold">{item.host}</h2>
+                      <p className="text-lg">IP: {item.ip}</p>
+                      <div className="flex items-center mt-1">
+                        <span className="text-sm mr-2">Number of open ports:</span>
+                        <span className={`text-sm font-bold text-white px-2 py-1 rounded-full ${getPortCountColor(item.portDetails.length)}`}>
+                          {item.portDetails.length}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="bg-gray-200">
+                            <th className="p-2 text-left">Port</th>
+                            <th className="p-2 text-left">Service</th>
+                            <th className="p-2 text-left">Product</th>
+                            <th className="p-2 text-left">Version</th>
+                            <th className="p-2 text-left">Links</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {item.portDetails.map((detail, detailIndex) => (
+                            <tr key={detailIndex} className={getPortStyle(detail.port, detail.service)}>
+                              <td className="p-2 border-b">{detail.port}</td>
+                              <td className="p-2 border-b font-semibold">{detail.service}</td>
+                              <td className="p-2 border-b">{detail.product}</td>
+                              <td className="p-2 border-b">{detail.version}</td>
+                              <td className="p-2 border-b">
+                                {(isHttpService(detail.service) || isSmbService(detail.service)) && 
+                                  getWebLink(item.ip, item.host, detail.port, detail.service)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                  <div className="p-4">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="bg-gray-200">
-                          <th className="p-2 text-left">Port</th>
-                          <th className="p-2 text-left">Service</th>
-                          <th className="p-2 text-left">Product</th>
-                          <th className="p-2 text-left">Version</th>
-                          <th className="p-2 text-left">Links</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {item.portDetails.map((detail, detailIndex) => (
-                          <tr key={detailIndex} className={getPortStyle(detail.port, detail.service)}>
-                            <td className="p-2 border-b">{detail.port}</td>
-                            <td className="p-2 border-b font-semibold">{detail.service}</td>
-                            <td className="p-2 border-b">{detail.product}</td>
-                            <td className="p-2 border-b">{detail.version}</td>
-                            <td className="p-2 border-b">
-                              {(isHttpService(detail.service) || isSmbService(detail.service)) && 
-                                getWebLink(item.ip, item.host, detail.port, detail.service)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
