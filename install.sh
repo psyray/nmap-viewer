@@ -11,7 +11,7 @@ print_color() {
 }
 
 # Check if asdf is installed
-if command_exists asdf; then
+if command -v asdf >/dev/null 2>&1; then
     print_color "asdf detected. Using asdf for Node.js installation..." "$GREEN"
     
     # Add the Node.js plugin if not already done
@@ -26,15 +26,9 @@ if command_exists asdf; then
     
     print_color "Node.js $NODEJS_VERSION installed with asdf." "$GREEN"
 else
-    # Check if Node.js is installed
-    if ! command -v node &> /dev/null
-    then
-        print_color "Node.js is not installed. Installing Node.js..." "$GREEN"
-        curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-        sudo apt-get install -y nodejs
-    else
-        print_color "Node.js is already installed." "$GREEN"
-    fi
+    print_color "asdf is not installed. We recommend using asdf for managing Node.js versions." "$RED"
+    print_color "Please install asdf and run this script again. Visit https://asdf-vm.com for installation instructions." "$RED"
+    exit 1
 fi
 
 # Create a new directory for the project
