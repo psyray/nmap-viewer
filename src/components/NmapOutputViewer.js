@@ -460,7 +460,7 @@ const NmapOutputViewer = () => {
     const serviceChecks = {
       http: (detail) => isHttpService(detail.service),
       smb: (detail) => isSmbService(detail.service),
-      standard: (detail) => ['80', '443', '8080'].includes(detail.port) && isHttpService(detail.service),
+      http_standard: (detail) => ['80', '443', '8080'].includes(detail.port) && isHttpService(detail.service),
       ldap: (detail) => isLdapService(detail.service),
       openssh: (detail) => isOpenSSHService(detail.service),
       kerberos: (detail) => isKerberosService(detail.service),
@@ -590,7 +590,7 @@ const NmapOutputViewer = () => {
   const serviceColors = {
     http: 'bg-yellow-100',
     smb: 'bg-red-100',
-    standard: 'bg-green-100',
+    http_standard: 'bg-green-100',
     ldap: 'bg-blue-100',
     openssh: 'bg-orange-100',
     kerberos: 'bg-purple-100',
@@ -882,14 +882,14 @@ const NmapOutputViewer = () => {
               </div>
             </div>
             <div className="flex items-center space-x-4 flex-wrap">
-              {allServices.map(service => (
+              {allServices.sort().map(service => (
                 <button 
                   key={service}
                   onClick={() => toggleFilter(service)} 
                   className={`flex items-center p-2 rounded ${activeFilters.includes(service) ? 'bg-blue-200' : ''}`}
                 >
                   <div className={`w-4 h-4 ${serviceColors[service]} mr-2`}></div>
-                  <span>{service.charAt(0).toUpperCase() + service.slice(1)}</span>
+                  <span>{service.replace(/_/g, ' ').charAt(0).toUpperCase() + service.replace(/_/g, ' ').slice(1)}</span>
                 </button>
               ))}
             </div>
