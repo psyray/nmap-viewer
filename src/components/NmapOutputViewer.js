@@ -342,7 +342,7 @@ const NmapOutputViewer = () => {
   const getWebLink = (ip, hostname, port, service) => {
     if (isSmbService(service)) {
       return (
-        <div>
+        <div onClick={(e) => e.stopPropagation()}>
           <a
             href={`smb://${ip}`}
             target="_blank"
@@ -373,7 +373,7 @@ const NmapOutputViewer = () => {
     const protocols = isHttps ? ['https'] : ['http', 'https'];
 
     return (
-      <div>
+      <div onClick={(e) => e.stopPropagation()}>
         {protocols.map(protocol => (
           <div key={protocol}>
             <a
