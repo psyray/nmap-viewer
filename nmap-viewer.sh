@@ -103,8 +103,45 @@ cleanup_and_exit() {
     exit 0
 }
 
+# Function to update the application
+update_application() {
+    print_color "Updating Nmap Viewer..." "$GREEN"
+    
+    if [ ! -d "nmap-viewer" ]; then
+        print_color "Nmap Viewer is not installed. Please run './nmap-viewer.sh install' first." "$RED"
+        exit 1
+    fi
+
+    cd nmap-viewer || exit
+
+    # Pull the latest changes
+    git pull origin master || {
+        print_color "Error: Failed to pull the latest changes. Please check your internet connection and try again." "$RED"
+        exit 1
+    }
+
+    # Install dependencies (in case there are new ones)
+    print_color "Updating dependencies..." "$GREEN"
+    npm install
+
+    # Rebuild the project
+    print_color "Rebuilding the project..." "$GREEN"
+    npm run build
+
+    print_color "Nmap Viewer has been successfully updated." "$GREEN"
+    
+    # Start the application after update
+    start_application
+}
+
 # Function to install the application
 install_application() {
+    if [ -d "nmap-viewer" ]; then
+        print_color "Nmap Viewer directory already exists. Updating instead..." "$YELLOW"
+        update_application
+        return
+    fi
+
     # Check if asdf is installed
     if command -v asdf >/dev/null 2>&1; then
         print_color "asdf detected. Using asdf for Node.js installation..." "$GREEN"
@@ -125,7 +162,7 @@ install_application() {
         print_color "asdf allows you to easily switch between Node.js versions and ensures consistency across different systems." "$YELLOW"
         print_color "Visit https://asdf-vm.com for installation instructions." "$YELLOW"
         
-        read -p "Do you want to proceed with system package manager installation instead? (y/n) " -n 1 -r
+        read -p "Do you want to proceed with system package manager installation instead (sudo required)? (y/n) " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             install_nodejs_system
@@ -147,7 +184,10 @@ install_application() {
 
     # Clone the repository
     print_color "Cloning the Nmap Viewer repository..." "$GREEN"
-    git clone https://github.com/psyray/nmap-viewer.git .
+    git clone https://github.com/psyray/nmap-viewer.git . || {
+        print_color "Error: Failed to clone the repository. Please check your internet connection and try again." "$RED"
+        exit 1
+    }
 
     # Install dependencies
     print_color "Installing dependencies..." "$GREEN"
@@ -169,6 +209,14 @@ install_application() {
 
 # Main execution
 main() {
+    # Check for required commands
+    for cmd in git npm xdg-open; do
+        if ! command -v $cmd &> /dev/null; then
+            echo "Error: $cmd is not installed or not in PATH"
+            exit 1
+        fi
+    done
+
     case "$1" in
         start)
             if [ -d "nmap-viewer" ]; then
@@ -182,10 +230,14 @@ main() {
         install)
             install_application
             ;;
+        update)
+            update_application
+            ;;
         *)
-            print_color "Usage: ./nmap-viewer.sh [install|start]" "$YELLOW"
+            print_color "Usage: ./nmap-viewer.sh [install|start|update]" "$YELLOW"
             print_color "  install: Install Nmap Viewer and start it" "$YELLOW"
             print_color "  start: Start Nmap Viewer (must be installed first)" "$YELLOW"
+            print_color "  update: Update Nmap Viewer to the latest version and start it" "$YELLOW"
             exit 1
             ;;
     esac

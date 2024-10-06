@@ -55,11 +55,15 @@ To install and run the Nmap Viewer application, follow these simple steps:
 
 4. Once the installation is complete, the application will automatically start and be accessible at `http://localhost:3001`.
 
-5. After the initial installation, for all subsequent uses, you can start the application with:
-
-   ```bash
-   ./nmap-viewer.sh start
-   ```
+5. After the initial installation, you can:
+   - Start the application:
+     ```bash
+     ./nmap-viewer.sh start
+     ```
+   - Update the application to the latest version and start it:
+     ```bash
+     ./nmap-viewer.sh update
+     ```
 
 ## Using the Application
 
