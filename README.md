@@ -23,31 +23,31 @@ Nmap Viewer is a web-based application designed to visualize and analyze the out
 - Sidebar with quick access to all detected services
 - Automatic scrolling to selected service
 
-## Installation
+## Installation and Usage
 
 To install and run the Nmap Viewer application, follow these simple steps:
 
 1. Download the installation script:
 
    ```bash
-   curl -O https://raw.githubusercontent.com/psyray/nmap-viewer/refs/heads/master/install.sh
+   curl -O https://raw.githubusercontent.com/psyray/nmap-viewer/refs/heads/master/nmap-viewer.sh
    ```
 
 2. Make the script executable:
 
    ```bash
-   chmod +x install.sh
+   chmod +x nmap-viewer.sh
    ```
 
-3. Run the installation script:
+3. Install and start the application:
 
    ```bash
-   ./install.sh
+   ./nmap-viewer.sh install
    ```
 
    This script will:
-   - Clone the project repository
    - Install Node.js (if not already installed)
+   - Clone the project repository
    - Install dependencies
    - Build the application
    - Start the application on port 3001
@@ -55,13 +55,17 @@ To install and run the Nmap Viewer application, follow these simple steps:
 
 4. Once the installation is complete, the application will automatically start and be accessible at `http://localhost:3001`.
 
-## Requirements
+5. After the initial installation, you can:
+   - Start the application:
+     ```bash
+     ./nmap-viewer.sh start
+     ```
+   - Update the application to the latest version and start it:
+     ```bash
+     ./nmap-viewer.sh update
+     ```
 
-- Bash shell
-- Internet connection
-- Modern web browser
-
-## Usage
+## Using the Application
 
 1. Open your web browser and navigate to `http://localhost:3001`.
 2. Use the file upload feature to load your initial Nmap XML output file.
@@ -74,9 +78,11 @@ To install and run the Nmap Viewer application, follow these simple steps:
 
 ## Requirements
 
-- Git
-- Node.js (installed automatically by the script if not present)
+- Bash shell
+- Internet connection
 - Modern web browser
+- Git
+- Node.js (version 14.0.0 or higher, installed automatically by the script if not present)
 
 ## Contributing
 
