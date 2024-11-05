@@ -7,7 +7,6 @@ import { useDropzone } from 'react-dropzone';
 
 const NmapOutputViewer = () => {
   // State variables
-  // const [xmlData, setXmlData] = useState(null);
   const [processedData, setProcessedData] = useState(null);
   const [error, setError] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: 'ip', direction: 'ascending' });
@@ -25,6 +24,7 @@ const NmapOutputViewer = () => {
   const [allExpanded, setAllExpanded] = useState(false);
   const [expandedPorts, setExpandedPorts] = useState({});
   const [isInitialFileLoaded, setIsInitialFileLoaded] = useState(false);
+  const [showNoOpenPorts, setShowNoOpenPorts] = useState(false); // New state for checkbox
   const multipleFileInputRef = useRef(null);
   const [expandedHosts, setExpandedHosts] = useState({});
 
@@ -569,7 +569,10 @@ const NmapOutputViewer = () => {
             )
         );
 
-      return matchesTextFilter && matchesServiceFilters;
+      // Check if the item has open ports or if we want to show hosts without open ports
+      const hasOpenPorts = item.portCount > 0;
+
+      return matchesTextFilter && matchesServiceFilters && (showNoOpenPorts || hasOpenPorts);
     }).map(item => ({
       ...item,
       portDetails: item.portDetails.filter(detail => 
@@ -583,7 +586,7 @@ const NmapOutputViewer = () => {
       ...item,
       id: `${item.ip}-${index}` // Create a unique id based on IP and index
     }));
-  }, [processedData, activeFilters, filterMode, textFilter]);
+  }, [processedData, activeFilters, filterMode, textFilter, showNoOpenPorts]);
 
   // Sort the filtered data
   const sortedData = useMemo(() => {
@@ -897,6 +900,18 @@ const NmapOutputViewer = () => {
             </button>
           </div>
         </div>
+        {/* Checkbox to show hosts without open ports */}
+        <div className="mb-4">
+          <label className="flex items-center">
+            <input 
+              type="checkbox" 
+              checked={showNoOpenPorts} 
+              onChange={() => setShowNoOpenPorts(prev => !prev)} 
+              className="mr-2"
+            />
+            Show hosts without open ports
+          </label>
+        </div>
         {sortedData && sortedData.map((item) => (
           <div 
             key={item.id}
@@ -1004,30 +1019,32 @@ const NmapOutputViewer = () => {
             )}
             {sortedData && (
               <div className="space-y-12">
-                <div className="flex justify-between items-center mt-8 mb-4">
-                  <p className="text-xl font-bold">Total number of hosts: {sortedData.length}</p>
-                  <div className="flex items-center">
-                    <div className="relative mr-4">
-                      <FaClipboard 
-                        className="text-2xl cursor-pointer hover:text-blue-500"
-                        onMouseEnter={() => setIsHoveringAllCommands(true)}
-                        onMouseLeave={() => setIsHoveringAllCommands(false)}
-                        onClick={() => copyToClipboard(generateAllNmapCommands(sortedData))}
-                      />
-                      {isHoveringAllCommands && (
-                        <div className="absolute right-0 mt-2 p-2 bg-white text-black rounded shadow-lg z-10 w-64">
-                          <p className="text-xs">Copy all Nmap commands</p>
-                        </div>
-                      )}
+                {isInitialFileLoaded && sortedData && (
+                  <div className="flex justify-between items-center mt-8 mb-4">
+                    <p className="text-xl font-bold">Total number of hosts: {sortedData.length}</p>
+                    <div className="flex items-center">
+                      <div className="relative mr-4">
+                        <FaClipboard 
+                          className="text-2xl cursor-pointer hover:text-blue-500"
+                          onMouseEnter={() => setIsHoveringAllCommands(true)}
+                          onMouseLeave={() => setIsHoveringAllCommands(false)}
+                          onClick={() => copyToClipboard(generateAllNmapCommands(sortedData))}
+                        />
+                        {isHoveringAllCommands && (
+                          <div className="absolute right-0 mt-2 p-2 bg-white text-black rounded shadow-lg z-10 w-64">
+                            <p className="text-xs">Copy all Nmap commands</p>
+                          </div>
+                        )}
+                      </div>
+                      <button 
+                        onClick={toggleAllHosts}
+                        className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+                      >
+                        {allExpanded ? 'Collapse All' : 'Expand All'}
+                      </button>
                     </div>
-                    <button 
-                      onClick={toggleAllHosts}
-                      className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-                    >
-                      {allExpanded ? 'Collapse All' : 'Expand All'}
-                    </button>
                   </div>
-                </div>
+                )}
                 {sortedData.map((item) => (
                   <div 
                     key={item.id} 
