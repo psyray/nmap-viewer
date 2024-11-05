@@ -32,29 +32,80 @@ const NmapOutputViewer = () => {
   const sidebarRef = useRef(null);
   const legendRef = useRef(null);
 
-  const processHost = useCallback((host) => {
+  const getPortDetails = (port) => {
+    return {
+      port: port['@_portid'] || 'unknown',
+      state: port.state ? port.state['@_state'] : 'unknown',
+      service: port.service ? port.service['@_name'] : 'unknown',
+      product: port.service && port.service['@_product'] ? port.service['@_product'] : '',
+      version: port.service && port.service['@_version'] ? port.service['@_version'] : '',
+      extraInfo: port.service && port.service['@_extrainfo'] ? port.service['@_extrainfo'] : '',
+      ostype: port.service && port.service['@_ostype'] ? port.service['@_ostype'] : '',
+      scripts: port.script ? (Array.isArray(port.script) ? port.script : [port.script]) : []
+    };
+  };
+
+  const processPorts = (ports, hostname, ip) => {
+    const openPorts = [];
+
+    ports.forEach(port => {
+      try {
+        // Check if port is defined and has a state property
+        if (port && port.state) {
+          if (port.state['@_state'] === 'open') {
+            openPorts.push(port);
+          }
+        } else {
+          // Log details if port is undefined or does not have a state
+          console.error(`Port is undefined or missing state for host: ${hostname}, IP: ${ip}`, { port });
+        }
+      } catch (error) {
+        // Log the error with details about the host and port
+        console.error(`Error processing port for host: ${hostname}, IP: ${ip}`, error);
+      }
+    });
+
+    return openPorts;
+  };
+
+  const processHostData = (host) => {
     const address = host.address;
     const ip = Array.isArray(address) ? address.find(addr => addr['@_addrtype'] === 'ipv4')['@_addr'] : address['@_addr'];
-    const hostname = host.hostnames && host.hostnames.hostname ? host.hostnames.hostname['@_name'] : ip;
-    const ports = Array.isArray(host.ports.port) ? host.ports.port : [host.ports.port];
-    
-    const openPorts = ports.filter(port => port.state['@_state'] === 'open');
-    
+
+    // Handle multiple hostnames
+    const hostnames = host.hostnames && host.hostnames.hostname 
+      ? (Array.isArray(host.hostnames.hostname) 
+          ? host.hostnames.hostname.map(h => h['@_name']).join(', ') 
+          : host.hostnames.hostname['@_name']) 
+      : ip; // Fallback to IP if no hostname is found
+
+    // Check if host.ports is defined before accessing it
+    const ports = host.ports ? (Array.isArray(host.ports.port) ? host.ports.port : [host.ports.port]) : [];
+
     return {
-      host: hostname,
+      ip,
+      hostnames,
+      ports
+    };
+  };
+
+  const processHost = useCallback((host) => {
+    const { ip, hostnames, ports } = processHostData(host);
+
+    // Use the utility function to process ports
+    const openPorts = processPorts(ports, hostnames, ip);
+
+    // Log if no open ports were found
+    if (openPorts.length === 0) {
+      console.warn(`No open ports found for host: ${hostnames}, IP: ${ip}`);
+    }
+
+    return {
+      host: hostnames,
       ip: ip,
-      ports: openPorts.map(port => port['@_portid']),
+      ports: openPorts.map(port => port['@_portid'] || 'unknown'),
       portCount: openPorts.length,
-      portDetails: openPorts.map(port => ({
-        port: port['@_portid'],
-        state: port.state['@_state'],
-        service: port.service ? port.service['@_name'] : 'unknown',
-        product: port.service && port.service['@_product'] ? port.service['@_product'] : '',
-        version: port.service && port.service['@_version'] ? port.service['@_version'] : '',
-        extraInfo: port.service && port.service['@_extrainfo'] ? port.service['@_extrainfo'] : '',
-        ostype: port.service && port.service['@_ostype'] ? port.service['@_ostype'] : '',
-        scripts: port.script ? (Array.isArray(port.script) ? port.script : [port.script]) : []
-      })),
+      portDetails: openPorts.map(getPortDetails),
       hostScripts: host.hostscript ? 
         (Array.isArray(host.hostscript.script) ? host.hostscript.script : [host.hostscript.script]).map(script => ({
           id: script['@_id'],
@@ -119,7 +170,7 @@ const NmapOutputViewer = () => {
             resolve(result);
           } catch (err) {
             console.error("Error parsing XML file:", err);
-            reject(err);
+            reject(new Error(`Failed to parse XML file: ${file.name}. Error: ${err.message}`));
           }
         };
         reader.readAsText(file);
@@ -132,7 +183,7 @@ const NmapOutputViewer = () => {
       })
       .catch(error => {
         console.error("Error processing dropped files:", error);
-        // Optionally show an error message to the user
+        setError(error.message); // Show the specific error message to the user
       });
   }, [updateDataWithNewScans]);
 
@@ -157,7 +208,8 @@ const NmapOutputViewer = () => {
         setError(null);
         setIsInitialFileLoaded(true);
       } catch (err) {
-        setError("Error parsing XML file. Please ensure the file is in valid XML format.");
+        console.error("Error parsing XML file:", err);
+        setError(`Failed to parse XML file: ${file.name}. Error: ${err.message}`);
         setProcessedData(null);
         setIsInitialFileLoaded(false);
       }
@@ -205,39 +257,30 @@ const NmapOutputViewer = () => {
     if (!data || !data.nmaprun || !data.nmaprun.host) return null;
 
     const hosts = Array.isArray(data.nmaprun.host) ? data.nmaprun.host : [data.nmaprun.host];
-    
+
     return hosts.map(host => {
-      const address = host.address;
-      const ip = Array.isArray(address) ? address.find(addr => addr['@_addrtype'] === 'ipv4')['@_addr'] : address['@_addr'];
-      const hostname = host.hostnames && host.hostnames.hostname ? host.hostnames.hostname['@_name'] : ip;
-      const ports = Array.isArray(host.ports.port) ? host.ports.port : [host.ports.port];
-      
-      const openPorts = ports.filter(port => port.state['@_state'] === 'open');
-      
-      // Process hostscript
-      const hostScripts = host.hostscript ? 
-        (Array.isArray(host.hostscript.script) ? host.hostscript.script : [host.hostscript.script]) : 
-        [];
+      const { ip, hostnames, ports } = processHostData(host);
+
+      // Use the utility function to process ports
+      const openPorts = processPorts(ports, hostnames, ip);
+
+      // Log if no open ports were found
+      if (openPorts.length === 0) {
+        console.warn(`No open ports found for host: ${hostnames}, IP: ${ip}`);
+      }
 
       return {
-        host: hostname,
+        host: hostnames,
         ip: ip,
-        ports: openPorts.map(port => port['@_portid']),
+        ports: openPorts.map(port => port['@_portid'] || 'unknown'),
         portCount: openPorts.length,
-        portDetails: openPorts.map(port => ({
-          port: port['@_portid'],
-          state: port.state['@_state'],
-          service: port.service ? port.service['@_name'] : 'unknown',
-          product: port.service && port.service['@_product'] ? port.service['@_product'] : '',
-          version: port.service && port.service['@_version'] ? port.service['@_version'] : '',
-          extraInfo: port.service && port.service['@_extrainfo'] ? port.service['@_extrainfo'] : '',
-          ostype: port.service && port.service['@_ostype'] ? port.service['@_ostype'] : '',
-          scripts: port.script ? (Array.isArray(port.script) ? port.script : [port.script]) : []
-        })),
-        hostScripts: hostScripts.map(script => ({
-          id: script['@_id'],
-          output: script['@_output']
-        }))
+        portDetails: openPorts.map(getPortDetails),
+        hostScripts: host.hostscript ? 
+          (Array.isArray(host.hostscript.script) ? host.hostscript.script : [host.hostscript.script]).map(script => ({
+            id: script['@_id'],
+            output: script['@_output']
+          })) : 
+          []
       };
     });
   };
@@ -538,7 +581,7 @@ const NmapOutputViewer = () => {
 
   // Sort the filtered data
   const sortedData = useMemo(() => {
-    if (!filteredData) return null;
+    if (!filteredData) return [];
     let sortableItems = [...filteredData];
     if (sortConfig.key) {
       sortableItems.sort((a, b) => {
@@ -559,6 +602,15 @@ const NmapOutputViewer = () => {
     }
     return sortableItems;
   }, [filteredData, sortConfig]);
+
+  // Ensure item is defined before accessing its properties
+  sortedData.map((item) => {
+    if (!item || !item.host) {
+      console.error('Item or host is undefined', item);
+      return null; // Skip this item if it's not valid
+    }
+    // Continue processing item...
+  });
 
   // Function to handle text filter change
   const handleTextFilterChange = (event) => {
