@@ -122,7 +122,7 @@ update_application() {
 
     # Install dependencies (in case there are new ones)
     print_color "Updating dependencies..." "$GREEN"
-    npm install
+    npm ci
 
     # Rebuild the project
     print_color "Rebuilding the project..." "$GREEN"
@@ -191,7 +191,7 @@ install_application() {
 
     # Install dependencies
     print_color "Installing dependencies..." "$GREEN"
-    npm install
+    npm ci
 
     # Build the project
     print_color "Building the project..." "$GREEN"

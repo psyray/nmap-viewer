@@ -69,7 +69,7 @@ const NmapOutputViewer = () => {
   };
 
   const processHostData = (host) => {
-    const address = host.address;
+    const {address} = host;
     const ip = Array.isArray(address) ? address.find(addr => addr['@_addrtype'] === 'ipv4')['@_addr'] : address['@_addr'];
 
     // Handle multiple hostnames
@@ -121,7 +121,9 @@ const NmapOutputViewer = () => {
       const newHosts = [];
 
       newScansData.forEach(newScanData => {
-        if (!newScanData || !newScanData.nmaprun || !newScanData.nmaprun.host) return;
+        if (!newScanData || !newScanData.nmaprun || !newScanData.nmaprun.host) {
+          return;
+        }
 
         const hosts = Array.isArray(newScanData.nmaprun.host) ? newScanData.nmaprun.host : [newScanData.nmaprun.host];
         hosts.forEach(host => {
@@ -254,7 +256,9 @@ const NmapOutputViewer = () => {
   };
 
   const processXmlData = (data) => {
-    if (!data || !data.nmaprun || !data.nmaprun.host) return null;
+    if (!data || !data.nmaprun || !data.nmaprun.host) {
+      return null;
+    }
 
     const hosts = Array.isArray(data.nmaprun.host) ? data.nmaprun.host : [data.nmaprun.host];
 
@@ -498,7 +502,9 @@ const NmapOutputViewer = () => {
 
   // Filter and process the data
   const filteredData = useMemo(() => {
-    if (!processedData) return null;
+    if (!processedData) {
+      return null;
+    }
     
     const serviceChecks = {
       http: (detail) => isHttpService(detail.service),
@@ -581,7 +587,9 @@ const NmapOutputViewer = () => {
 
   // Sort the filtered data
   const sortedData = useMemo(() => {
-    if (!filteredData) return [];
+    if (!filteredData) {
+      return [];
+    }
     let sortableItems = [...filteredData];
     if (sortConfig.key) {
       sortableItems.sort((a, b) => {
@@ -607,9 +615,18 @@ const NmapOutputViewer = () => {
   sortedData.map((item) => {
     if (!item || !item.host) {
       console.error('Item or host is undefined', item);
-      return null; // Skip this item if it's not valid
+      return { host: 'Unknown', ip: 'Unknown', ports: [], portCount: 0, portDetails: [], hostScripts: [] }; // Return a default object
     }
+    
     // Continue processing item...
+    return {
+      host: item.host,
+      ip: item.ip,
+      ports: item.ports,
+      portCount: item.portCount,
+      portDetails: item.portDetails,
+      hostScripts: item.hostScripts,
+    };
   });
 
   // Function to handle text filter change
@@ -619,10 +636,18 @@ const NmapOutputViewer = () => {
 
   // Function to get port count color
   const getPortCountColor = (count) => {
-    if (count === 0) return 'bg-red-500';
-    if (count <= 10) return 'bg-yellow-500';
-    if (count <= 20) return 'bg-yellow-300';
-    if (count <= 30) return 'bg-green-300';
+    if (count === 0) {
+      return 'bg-red-500';
+    }
+    if (count <= 10) {
+      return 'bg-yellow-500';
+    }
+    if (count <= 20) {
+      return 'bg-yellow-300';
+    }
+    if (count <= 30) {
+      return 'bg-green-300';
+    }
     return 'bg-green-500';
   };
 
@@ -698,7 +723,9 @@ const NmapOutputViewer = () => {
 
   // Function to generate hosts file content
   const generateHostsFileContent = () => {
-    if (!filteredData) return '';
+    if (!filteredData) {
+      return '';
+    }
     
     return filteredData
       .sort((a, b) => compareIP(a.ip, b.ip))
@@ -765,7 +792,9 @@ const NmapOutputViewer = () => {
   };
 
   const formatText = (text) => {
-    if (typeof text !== 'string') return text;
+    if (typeof text !== 'string') {
+      return text;
+    }
     return text.replace(/&#xa;/g, '\n');
   };
 
