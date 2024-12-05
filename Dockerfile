@@ -1,5 +1,5 @@
 # Base install from node
-FROM node:latest
+FROM node:18.20-bookworm
 
 WORKDIR /app
 
