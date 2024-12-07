@@ -65,6 +65,18 @@ To install and run the Nmap Viewer application, follow these simple steps:
      ./nmap-viewer.sh update
      ```
 
+### With Docker
+1. Download the Dockerfile and build it
+
+   ```bash
+   docker build -t nmap-viewer . 
+   ```
+2. Create a container
+   ```bash
+   docker run -p 3001:3001 -d nmap-viewer 
+   ```
+3. Access it with http://localhost:3001
+
 ## Using the Application
 
 1. Open your web browser and navigate to `http://localhost:3001`.
