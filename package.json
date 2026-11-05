@@ -2,6 +2,7 @@
   "name": "nmap-viewer",
   "version": "0.1.0",
   "private": true,
+  "homepage": "/nmap-viewer",
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.1.1",
     "@radix-ui/react-scroll-area": "^1.1.0",
